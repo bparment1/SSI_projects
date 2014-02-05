@@ -1,8 +1,6 @@
 ####################################  DSS SSI DATA PROCESSING   #######################################
 ############################  Script downloads and import Reanalyses data  #######################################
-#This script processes Maine data for DSS SSI to examined spatial patterns and compare them to daily devation 
-#from CAI and FSS methods
-#Figures and data for the contribution of covariate paper are also produced.                                                                     #
+#This script processes Maine data for Decision Support System for SSI.                                                                     #
 #AUTHOR: Benoit Parmentier                                                                      #
 #DATE CREATED: 02/04/2014            
 #DATE MODIFIED: 02/04/2014            
@@ -43,6 +41,7 @@ Maine_town_file <- "metwp24.shp"
 CRS_reg <- "+proj=utm +zone=19 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"
 file_format <- ".tif"
 out_suffix <- "02042014"
+w_extent <- c("-72 48 -65 41") #minx,maxy (upper left), maxx,miny (lower right)
 setwd(in_dir)
 
 out_dir <- in_dir
@@ -77,19 +76,32 @@ reg_extent <- bbox(reg_counties)
 #loop through files...
 l_f <- list.files(pattern="*asc.zip")
 l_dir <-lapply(l_f,function(i){sub(".zip","",i)})
-unzip(l_f[[1]],exdir=l_dir[[1]])
+#unzip(l_f[[1]],exdir=l_dir[[1]])
+
+for (i in 1:length(l_f)){
+  unzip(l_f[[i]],exdir=l_dir[[i]])
+}
 
 # loop through files
+#for (i in 1:length(l_f)){
+#  d
 f_list <- list.files(path=l_dir[[1]],pattern="*.asc",full.names=T)
 src_dataset <- file.path(in_dir,f_list[[1]])
 #in this case need to add folder name!!!
 dst_dataset <- paste(l_dir[[1]],sub(".asc",file_format,basename(src_dataset)),sep="_")
+#dst_dataset <- paste(sub(file_format,"_clipped",basename(src_dataset)),file_format,sep="")
+
 #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
 dst_dataset <- file.path(out_dir,dst_dataset)
-command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ")
-#Input file size is 161190, 104424
+#command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
+command_str <-paste("gdal_translate", 
+                    "-projwin", w_extent, 
+                    "-a_srs", paste("'","+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs","'",sep=" "), 
+                    src_dataset, dst_dataset ,sep=" ")
+#Input file size is 161190, 104424        
 system(command_str)
 
+## Now reproject
 src_dataset <- dst_dataset
 #dst_dataset <- src_dataset
 dst_dataset <- paste(sub(file_format,"_projected",basename(src_dataset)),file_format,sep="")
@@ -100,20 +112,11 @@ command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), src_dat
 #t_rsrs : target/output spatial ref system
 system(command_str)
 
-
-src_dataset <- dst_dataset
-dst_dataset <- paste(sub(file_format,"_cliped",basename(src_dataset)),file_format,sep="")
-
-reg_extent_str <- paste(as.character(as.vector(reg_extent)),collapse=" ")
-command_str <-paste("gdal_translate", "-projwin", reg_extent_str, src_dataset, dst_dataset ,sep=" ")
-#Input file size is 161190, 104424
-system(command_str)
-
-reg_extent_str <- paste(as.character(as.vector(reg_extent)),collapse=" ")
-command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), 
-                     #"-te",paste("'",reg_extent_str,"'",sep=""),
-                     "-te",reg_extent_str,
-                     src_dataset, dst_dataset,sep=" ")
+#reg_extent_str <- paste(as.character(as.vector(reg_extent)),collapse=" ")
+#command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), 
+#                     #"-te",paste("'",reg_extent_str,"'",sep=""),
+#                     "-te",reg_extent_str,
+#                     src_dataset, dst_dataset,sep=" ")
 
 ## NLCD processing: 1992, 2001, 2006
 
