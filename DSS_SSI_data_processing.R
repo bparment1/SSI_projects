@@ -28,6 +28,8 @@ library(plyr)
 
 #### FUNCTION USED IN SCRIPT
 
+#...insert here
+
 ##############################
 #### Parameters and constants  
 
@@ -83,40 +85,51 @@ for (i in 1:length(l_f)){
 }
 
 # loop through files
-#for (i in 1:length(l_f)){
-#  d
-f_list <- list.files(path=l_dir[[1]],pattern="*.asc",full.names=T)
-src_dataset <- file.path(in_dir,f_list[[1]])
-#in this case need to add folder name!!!
-dst_dataset <- paste(l_dir[[1]],sub(".asc",file_format,basename(src_dataset)),sep="_")
-#dst_dataset <- paste(sub(file_format,"_clipped",basename(src_dataset)),file_format,sep="")
+for (i in 1:length(l_f)){
+  f_list <- list.files(path=l_dir[[i]],pattern="*.asc",full.names=T)
+  
+  for (j in 1:length(f_list)){
+    
+    src_dataset <- file.path(in_dir,f_list[[j]])
+    #in this case need to add folder name!!!
+    dst_dataset <- paste(l_dir[[i]],sub(".asc",file_format,basename(src_dataset)),sep="_")
+    #dst_dataset <- paste(sub(file_format,"_clipped",basename(src_dataset)),file_format,sep="")
 
-#dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
-dst_dataset <- file.path(out_dir,dst_dataset)
-#command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
-command_str <-paste("gdal_translate", 
+    #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
+    dst_dataset <- file.path(out_dir,dst_dataset)
+    #command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
+    command_str <-paste("gdal_translate", 
                     "-projwin", w_extent, 
                     "-a_srs", paste("'","+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs","'",sep=" "), 
                     src_dataset, dst_dataset ,sep=" ")
-#Input file size is 161190, 104424        
-system(command_str)
+    #Input file size is 161190, 104424        
+    system(command_str)
 
-## Now reproject
-src_dataset <- dst_dataset
-#dst_dataset <- src_dataset
-dst_dataset <- paste(sub(file_format,"_projected",basename(src_dataset)),file_format,sep="")
-#dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
-dst_dataset <- file.path(out_dir,dst_dataset)
+    ## Now reproject 
+    src_dataset <- dst_dataset
+    #dst_dataset <- src_dataset
+    dst_dataset <- paste(sub(file_format,"_projected",basename(src_dataset)),file_format,sep="")
+    #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
+    dst_dataset <- file.path(out_dir,dst_dataset)
 
-command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), src_dataset, dst_dataset,sep=" ")
-#t_rsrs : target/output spatial ref system
-system(command_str)
+    command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), src_dataset, dst_dataset,sep=" ")
+    #t_rsrs : target/output spatial ref system
+    system(command_str)
 
-#reg_extent_str <- paste(as.character(as.vector(reg_extent)),collapse=" ")
-#command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), 
-#                     #"-te",paste("'",reg_extent_str,"'",sep=""),
-#                     "-te",reg_extent_str,
-#                     src_dataset, dst_dataset,sep=" ")
+    #reg_extent_str <- paste(as.character(as.vector(reg_extent)),collapse=" ")
+    #command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), 
+    #                     #"-te",paste("'",reg_extent_str,"'",sep=""),
+    #                     "-te",reg_extent_str,
+    #                     src_dataset, dst_dataset,sep=" ")
+  }
+
+}
+
+#Quick chech in R raster
+ncar_pred_files <- list.files(path=out_dir,pattern="*.projected",full.names=T)
+r_ncar_stack <- stack(ncar_pred_files)
+
+levelplot(r_ncar_stack,layer=1:3)
 
 ## NLCD processing: 1992, 2001, 2006
 
@@ -125,8 +138,33 @@ system(command_str)
 #3.convert to tif (gdal_tranlslate)
 #4.reproject and clip/subset for Maine region (clip using count24?)
 
+f_list <- list.files(path=in_dir,pattern="nlcd.*.img",full.names=T)
 
 r_nlcd2001 <- raster(f_list[[1]])
+
+    # ...
+    src_dataset <- f_list[[j]]
+    #in this case need to add folder name!!!
+    out_prefix <- ""
+    dst_dataset <- paste(out_prefix,sub(".img",file_format,basename(src_dataset)),sep="")
+    #dst_dataset <- paste(sub(file_format,"_clipped",basename(src_dataset)),file_format,sep="")
+
+    #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
+    dst_dataset <- file.path(out_dir,dst_dataset)
+    #command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
+    #clipped using extent...
+    mat_coord_extent<- matrix(c(-72,-65,48,41),2)
+    
+    coordinates(mat_coord_extent) <- (mat_coord_extent)
+    spTransform(mat_coord_extent,CRS()) 
+
+    command_str <-paste("gdal_translate", 
+                    "-projwin", w_extent, 
+                    "-a_srs", paste("'","+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs","'",sep=" "), 
+                    src_dataset, dst_dataset ,sep=" ")
+    #Input file size is 161190, 104424        
+    system(command_str)
+
 command_str <-paste("gdal_translate", "nlcd2006_landcover_4-20-11_se5.img","nlcd2006_landcover_4-20-11_se5.tif",sep=" ")
 #Input file size is 161190, 104424
 system(command_str)
