@@ -1,11 +1,11 @@
 ####################################  DSS SSI DATA PROCESSING   #######################################
-############################  Script downloads and import Reanalyses data  #######################################
+############################  Script downloads and imports Reanalyses data  #######################################
 #This script processes Maine data for Decision Support System for SSI.                                                                     #
 #AUTHOR: Benoit Parmentier                                                                      #
 #DATE CREATED: 02/04/2014            
-#DATE MODIFIED: 02/04/2014            
+#DATE MODIFIED: 02/19/2014            
 #Version: 1
-#PROJECT: DSS-SSI project                                    #
+#PROJECT: DSS-SSI project                                 
 #################################################################################################
 
 ###Loading R library and packages                                                      
@@ -40,10 +40,12 @@ in_dir <- "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data
 Maine_counties_file <- "county24.shp"
 Maine_town_file <- "metwp24.shp"
 
+#EPSG: http://spatialreference.org/ref/epsg/26919/proj4/ -->  
+#+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
 CRS_reg <- "+proj=utm +zone=19 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"
 file_format <- ".tif"
 out_suffix <- "02042014"
-w_extent <- c("-72 48 -65 41") #minx,maxy (upper left), maxx,miny (lower right)
+w_extent_str <- c("-72 48 -65 41") #minx,maxy (upper left), maxx,miny (lower right)
 setwd(in_dir)
 
 out_dir <- in_dir
@@ -67,7 +69,7 @@ reg_extent <- bbox(reg_counties)
 #r_fname <- "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/ncar_ccsm3_0_sres_a1b_2050s_tmean_2_5min_no_tile_asc/tmean_1.asc"
 #r <- raster(r_fname)
 
-
+w_extent <- w_extent_str
 ## Temp processing: 2020s,2030s,2040s,2050s for tmin, tmax and tmean (e.g. 4*3 directories with 12 files...)
 
 #1.download...not automated...
@@ -141,8 +143,8 @@ levelplot(r_ncar_stack,layer=1:3)
 f_list <- list.files(path=in_dir,pattern="nlcd.*.img",full.names=T)
 
 r_nlcd2001 <- raster(f_list[[1]])
-
-    # ...
+for(j in 1:length(f_list)){
+      # ...
     src_dataset <- f_list[[j]]
     #in this case need to add folder name!!!
     out_prefix <- ""
@@ -154,9 +156,13 @@ r_nlcd2001 <- raster(f_list[[1]])
     #command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
     #clipped using extent...
     mat_coord_extent<- matrix(c(-72,-65,48,41),2)
-    
-    coordinates(mat_coord_extent) <- (mat_coord_extent)
-    spTransform(mat_coord_extent,CRS()) 
+    dat<- as.data.frame(mat_coord_extent)
+    coordinates(dat) <- mat_coord_extent
+    proj4string(dat)<- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+    dat<- spTransform(dat,CRS("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")) 
+    w_extent<-project(mat_coord_extent,
+         proj="+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+    w_extent <- paste(as.character(w_extent),collapse=" ")
 
     command_str <-paste("gdal_translate", 
                     "-projwin", w_extent, 
@@ -165,17 +171,74 @@ r_nlcd2001 <- raster(f_list[[1]])
     #Input file size is 161190, 104424        
     system(command_str)
 
-command_str <-paste("gdal_translate", "nlcd2006_landcover_4-20-11_se5.img","nlcd2006_landcover_4-20-11_se5.tif",sep=" ")
-#Input file size is 161190, 104424
-system(command_str)
-
-gdalwarp -t_srs '+proj=utm +zone=11 +datum=WGS84' raw_spot.tif utm11.tif
-#t_rsrs : target/output spatial ref system
-in_r <- "" #input raster
-out_r <- "" #output raster
-paste("gdalwarp", "t_srs", paste(',CRS_reg,',sep=""), in_r, out_r, sep=" " )
+}
 
 
 
+###### End of script ###########
+
+# command_str <-paste("gdal_translate", "nlcd2006_landcover_4-20-11_se5.img","nlcd2006_landcover_4-20-11_se5.tif",sep=" ")
+# #Input file size is 161190, 104424
+# system(command_str)
+# 
+# gdalwarp -t_srs '+proj=utm +zone=11 +datum=WGS84' raw_spot.tif utm11.tif
+# #t_rsrs : target/output spatial ref system
+# in_r <- "" #input raster
+# out_r <- "" #output raster
+# paste("gdalwarp", "t_srs", paste(',CRS_reg,',sep=""), in_r, out_r, sep=" " )
+# 
+# command_str <- paste("gdalwarp", "-dstnodata 0", 
+# "-cutline M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/county24.shp", 
+# "-crop_to_cutline", 
+# "-of GTiff", 
+# "M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/nlcd2001_landcover_v2_2-13-11.img", 
+# "M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/output_data_02042014/test55.tif",sep=" ")
+# 
+# dst_dataset <- file.path(out_dir,"test55.tif")
+# command_str <- paste("gdalwarp", "-dstnodata", paste("'","0","'",sep=""), 
+# "-cutline", paste("'","home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data//county24.shp","'",sep=""), 
+# "-crop_to_cutline", 
+# #"-of GTiff", 
+# f_list[2], 
+# dst_dataset,sep=" ")
+# 
+# command_str <- paste("gdalwarp", #"-dstnodata", paste("'","0","'",sep=""), 
+# "-cutline home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data//county24.shp", 
+# #"-of GTiff", 
+# f_list[1], 
+# dst_dataset,sep=" ")
+# 
+# system(command_str)
+# 
+# 
+# gdalwarp -dstnodata 0 
+# -q -cutline M:\Data\IPLANT_project\Maine_interpolation\DSS_SSI_data\county24.shp 
+# -crop_to_cutline 
+# -of GTiff 
+# M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/nlcd2001_landcover_v2_2-13-11.img 
+# M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/output_data_02042014/test02182014.tif
+# 
+# gdalwarp -s_srs EPSG:4326 
+# -q -cutline M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/county24.shp 
+# -dstalpha 
+# -of GTiff 
+# M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/ncar_ccsm3_0_sres_a1b_2020s_tmax_2_5min_no_tile_asc/tmax_4.asc 
+# M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/output_data_02042014/test50.tif
+# 
+# gdalwarp -s_srs EPSG:4326 -q -cutline M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/county24.shp -of GTiff M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/ncar_ccsm3_0_sres_a1b_2020s_tmax_2_5min_no_tile_asc/tmax_4.asc M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/output_data_02042014/test52.tif
+# gdalwarp -s_srs EPSG:4326 
+# -t_srs "+proj=utm +zone=19 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0" 
+# -q -cutline M:\Data\IPLANT_project\Maine_interpolation\DSS_SSI_data\county24.shp 
+# -dstalpha 
+# -of GTiff M:\Data\IPLANT_project\Maine_interpolation\DSS_SSI_data\ncar_ccsm3_0_sres_a1b_2020s_tmax_2_5min_no_tile_asc\tmax_1.asc 
+# M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/output_data_02042014/test45.tif
+# 
+# gdalwarp -s_srs EPSG:4326 
+# -t_srs EPSG:2960 
+# -q -cutline M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/county24.shp 
+# -dstalpha -of GTiff 
+# M:\Data\IPLANT_project\Maine_interpolation\DSS_SSI_data\ncar_ccsm3_0_sres_a1b_2020s_tmean_2_5min_no_tile_asc\tmean_3.asc 
+# M:/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/output_data_02042014/test48.tif
 
 
+#system("gdalwarp -t_srs EPSG:4326 /home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data//nlcd2006_landcover_4-20-11_se5.img test.55.tif")
