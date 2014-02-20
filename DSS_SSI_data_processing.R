@@ -160,10 +160,10 @@ for(j in 1:length(f_list)){
     coordinates(dat) <- mat_coord_extent
     proj4string(dat)<- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
     dat<- spTransform(dat,CRS("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")) 
-    w_extent<-project(mat_coord_extent,
-         proj="+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
-    w_extent <- paste(as.character(w_extent),collapse=" ")
-
+    #w_extent<-project(mat_coord_extent,
+     #    proj="+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+   # w_extent <- paste(as.character(w_extent),collapse=" ")
+    w_extent <- paste(as.character(bbox(dat)),collapse=" ")
     command_str <-paste("gdal_translate", 
                     "-projwin", w_extent, 
                     "-a_srs", paste("'","+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs","'",sep=" "), 
@@ -173,6 +173,8 @@ for(j in 1:length(f_list)){
 
 }
 
+
+### Now reclass the image
 
 
 ###### End of script ###########
