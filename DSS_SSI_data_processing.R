@@ -3,9 +3,12 @@
 #This script processes Maine data for Decision Support System for SSI.                                                                     #
 #AUTHOR: Benoit Parmentier                                                                      #
 #DATE CREATED: 02/04/2014            
-#DATE MODIFIED: 02/19/2014            
+#DATE MODIFIED: 02/26/2014            
 #Version: 1
-#PROJECT: DSS-SSI project                                 
+#PROJECT: DSS-SSI project
+#TO DO:
+#1) deal with NA
+#2) reclassifify NLCD classes
 #################################################################################################
 
 ###Loading R library and packages                                                      
@@ -44,8 +47,9 @@ Maine_town_file <- "metwp24.shp"
 #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
 CRS_reg <- "+proj=utm +zone=19 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"
 file_format <- ".tif"
-out_suffix <- "02042014"
+out_suffix <- "02272014"
 w_extent_str <- c("-72 48 -65 41") #minx,maxy (upper left), maxx,miny (lower right)
+use_reg_extent<- TRUE
 setwd(in_dir)
 
 out_dir <- in_dir
@@ -57,19 +61,29 @@ if (!file.exists(out_dir)){
   dir.create(out_dir)
   #} else{
   #  out_path <-paste(out_path..)
+}else{
+  file.remove(list.files(path=out_dir))
 }
 
 ########## START SCRIPT #############
 
-reg_counties <-readOGR(".",sub(".shp","",Maine_counties_file))                 #reading shapefile 
+reg_area_poly <-readOGR(".",sub(".shp","",Maine_counties_file))                 #reading shapefile 
 reg_town <-readOGR(".",sub(".shp","",Maine_town_file))                 #reading shapefile 
 
-reg_extent <- bbox(reg_counties)
+
 #<- "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/ncar_ccsm3_0_sres_a1b_2050s_tmin_2_5min_no_tile_grd/tmin"
 #r_fname <- "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/ncar_ccsm3_0_sres_a1b_2050s_tmean_2_5min_no_tile_asc/tmean_1.asc"
 #r <- raster(r_fname)
+if (use_reg_extent==TRUE){
+  #get extent in WGS84 (lat long)
+  reg_area_poly_WGS84 <- spTransform(reg_area_poly,CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")) 
+  reg_extent <- bbox(reg_area_poly_WGS84)
+  w_extent <- c(reg_extent[1,1],reg_extent[2,2],reg_extent[1,2],reg_extent[2,1])
+  w_extent <- paste(as.character(w_extent),collapse=" ")
+}else{
+  w_extent <- w_extent_str #this is in WGS84
+}
 
-w_extent <- w_extent_str
 ## Temp processing: 2020s,2030s,2040s,2050s for tmin, tmax and tmean (e.g. 4*3 directories with 12 files...)
 
 #1.download...not automated...
@@ -128,11 +142,11 @@ for (i in 1:length(l_f)){
 }
 
 #Quick chech in R raster
-ncar_pred_files <- list.files(path=out_dir,pattern="*.projected",full.names=T)
-r_ncar_stack <- stack(ncar_pred_files)
+#ncar_pred_files <- list.files(path=out_dir,pattern="*.projected",full.names=T)
+#r_ncar_stack <- stack(ncar_pred_files)
 
-levelplot(r_ncar_stack,layer=1:3)
-
+#levelplot(r_ncar_stack,layer=1:3)
+#plot(r_ncar_stack,y=1,col=matlab.like(25),colNA=c("white")) #deal with NA val!!!
 ## NLCD processing: 1992, 2001, 2006
 
 #1.download...not automated?
@@ -140,41 +154,75 @@ levelplot(r_ncar_stack,layer=1:3)
 #3.convert to tif (gdal_tranlslate)
 #4.reproject and clip/subset for Maine region (clip using count24?)
 
+### Project the WGS84 extent to the target SRS
+#Make this a function...!!!
+#w_extent_num <- as.numeric(unlist(strsplit(w_extent," ")))
+#mat_coord_extent<- matrix(c(-72,-65,48,41),2)
+#mat_coord_extent<- t(matrix(w_extent_num,nrow=2,ncol=2,byrow=FALSE))
+#dat<- as.data.frame(mat_coord_extent)
+#coordinates(dat) <- mat_coord_extent
+#proj4string(dat)<- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+#dat_proj <- spTransform(dat,CRS("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")) 
+dat_proj <- spTransform(reg_area_poly,CRS("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")) 
+
+#reg_area_poly
+reg_extent<- bbox(dat_proj)
+#reg_extent <- bbox(reg_area_poly_WGS84)
+w_extent <- c(reg_extent[1,1],reg_extent[2,2],reg_extent[1,2],reg_extent[2,1])
+w_extent <- paste(as.character(w_extent),collapse=" ")
+
+#w_extent<-project(mat_coord_extent,
+#    proj="+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+#w_extent <- paste(as.character(w_extent),collapse=" ")
+#w_extent <- paste(as.character(bbox(dat)),collapse=" ")
+
+#as.character(as.vector(t(coordinates(dat))))
+#w_extent <- paste(as.character(t(coordinates(dat))),collapse=" ")
+
+### end of function
+
 f_list <- list.files(path=in_dir,pattern="nlcd.*.img",full.names=T)
 
-r_nlcd2001 <- raster(f_list[[1]])
 for(j in 1:length(f_list)){
-      # ...
+    # ...make this part of function to match with earlier...
     src_dataset <- f_list[[j]]
     #in this case need to add folder name!!!
     out_prefix <- ""
-    dst_dataset <- paste(out_prefix,sub(".img",file_format,basename(src_dataset)),sep="")
+    dst_dataset <- paste(out_prefix,sub(extension(src_dataset),file_format,basename(src_dataset)),sep="")
     #dst_dataset <- paste(sub(file_format,"_clipped",basename(src_dataset)),file_format,sep="")
 
     #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
     dst_dataset <- file.path(out_dir,dst_dataset)
     #command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
     #clipped using extent...
-    mat_coord_extent<- matrix(c(-72,-65,48,41),2)
-    dat<- as.data.frame(mat_coord_extent)
-    coordinates(dat) <- mat_coord_extent
-    proj4string(dat)<- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-    dat<- spTransform(dat,CRS("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")) 
-    #w_extent<-project(mat_coord_extent,
-     #    proj="+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
-   # w_extent <- paste(as.character(w_extent),collapse=" ")
-    w_extent <- paste(as.character(bbox(dat)),collapse=" ")
+    #w_extent <- as.numeric(unlist(strsplit(w_extent_str," ")))
+    
     command_str <-paste("gdal_translate", 
                     "-projwin", w_extent, 
                     "-a_srs", paste("'","+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs","'",sep=" "), 
                     src_dataset, dst_dataset ,sep=" ")
     #Input file size is 161190, 104424        
     system(command_str)
+    
+    ## Now reproject 
+    src_dataset <- dst_dataset
+    #dst_dataset <- src_dataset
+    dst_dataset <- paste(sub(file_format,"_projected",basename(src_dataset)),file_format,sep="")
+    #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
+    dst_dataset <- file.path(out_dir,dst_dataset)
+
+    command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), src_dataset, dst_dataset,sep=" ")
+    #t_rsrs : target/output spatial ref system
+    system(command_str)
+
 
 }
 
+r_stack <- stack(list.files(pattern="^nlcd.*projected.tif$",path=out_dir,full.names=T))
 
 ### Now reclass the image
+
+### Now adjust the resolution to be 100m
 
 
 ###### End of script ###########
