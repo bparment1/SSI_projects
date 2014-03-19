@@ -3,12 +3,15 @@
 #This script processes Maine data for Decision Support System for SSI.                                                                     #
 #AUTHOR: Benoit Parmentier                                                                      #
 #DATE CREATED: 02/04/2014            
-#DATE MODIFIED: 02/26/2014            
+#DATE MODIFIED: 03/19/2014            
 #Version: 1
 #PROJECT: DSS-SSI project
 #TO DO:
 #1) deal with NA
 #2) reclassifify NLCD classes
+#3) resample at 100 m (both temp and NLCD data)
+#4) summarize trends of temp by cities and counties
+#
 #################################################################################################
 
 ###Loading R library and packages                                                      
@@ -47,7 +50,7 @@ Maine_town_file <- "metwp24.shp"
 #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
 CRS_reg <- "+proj=utm +zone=19 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"
 file_format <- ".tif"
-out_suffix <- "02272014"
+out_suffix <- "03192014"
 w_extent_str <- c("-72 48 -65 41") #minx,maxy (upper left), maxx,miny (lower right)
 use_reg_extent<- TRUE
 setwd(in_dir)
@@ -224,6 +227,40 @@ r_stack <- stack(list.files(pattern="^nlcd.*projected.tif$",path=out_dir,full.na
 
 ### Now adjust the resolution to be 100m
 
+### Now summarize by table of towns/counties
+
+list.files(pattern="tmean.*.projected.tif$")
+list.files(path=out_dir,pattern="tmax.*.projected.tif$")
+r_tmin <- stack(mixedsort(list.files(path=out_dir,pattern="tmin.*.projected.tif$",
+                full.names=TRUE)))
+
+r_reg_area <- rasterize(reg_area_poly,r_tmin,field="COUNTY") #this is the prediction from lm model
+projection(r_tmin) <- projection(r_reg_area)
+tb <- as.data.frame(zonal(r_tmin,r_reg_area))
+
+col_pal <- c("blue","green","red","black")
+y_range <- range(tb[1,])
+plot(1:12,tb[1,2:13],type="b",col=col_pal[1],ylim=y_range) #2020s
+lines(1:12,tb[1,14:25],type="b",col=col_pal[2]) #2030s
+lines(1:12,tb[1,26:37],type="b",col=col_pal[3]) #2040s
+lines(1:12,tb[1,38:49],type="b",col=col_pal[4]) #2050s
+
+
+plot(1:4,tb[1,c(8,20,32,44)],type="b",col=col_pal[1]) #2020s
+
+names(tb)<-c("zone",
+  paste(1:12,c("y20"),sep=""),
+  paste(1:12,c("y30"),sep=""),
+  paste(1:12,c("y40"),sep=""),
+  paste(1:12,c("y50"),sep=""))
+
+tb$county <- as.character(unique((reg_area_poly$COUNTY)))
+#change names and write out as point data.frame...
+  
+#gCentroid(reg_area_poly,byid=T,id="COUNTY")
+write.table(tb,file="tmin_summary_by_county.txt",sep=",")
+
+##Now try with extract
 
 ###### End of script ###########
 
