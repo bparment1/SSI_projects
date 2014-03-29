@@ -8,7 +8,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 03/24/2014
+# Updated on: 03/29/2014
 
 import os, glob
 import subprocess
@@ -44,7 +44,7 @@ def create_dir_and_check_existence(path):
             
 def main():
     #--------------------------------------------
-    # Download and Calculate monthly climatology for daily LST time series for a specific area
+    # Clip and reproject data given a shape file or extent
     #--------------------------------------------
 
     # TODO: set up a (temporary?) GRASS database to use for processing? code
@@ -54,49 +54,7 @@ def main():
  
     ########## START OF SCRIPT ##############
     #### Modified by Benoit on May 13, 2013 
-    
-    ### INPUT Parameters
-    #Inputs from R?? there are 9 parameters
-   #tiles = ['h11v08','h11v07','h12v07','h12v08','h10v07','h10v08'] #These tiles correspond to Venezuela.
-    #tiles= ['h08v04','h09v04']    
-    #start_year = 2001
-    #end_year = 2010
-    #start_month=1
-    #end_month=12
-    #hdfdir =  '/home/layers/commons/modis/MOD11A1_tiles' #destination file where hdf files are stored locally after download.
-    #hdfdir =  '/home/parmentier/Data/IPLANT_project/MOD11A1_tiles' #destination file where hdf files are stored locally after download.
-    #night=1    # if 1 then produce night climatology
-    #out_suffix="_03192013"
-    #download=0  # if 1 then download files
-   
-    #Passing arguments from the shell...using positional assignment
-    parser = argparse.ArgumentParser()
-    parser.add_argument("tiles", type=str, help="list of Modis tiles")
-    parser.add_argument("start_year", type=int, help="start year")
-    parser.add_argument("end_year", type=int, help="end year")
-    parser.add_argument("start_month", type=int, help="start month")
-    parser.add_argument("end_month", type=int, help="end month")
-    parser.add_argument("hdfdir", type=str, help="destination/source directory for hdf file")
-    parser.add_argument("night", type=int, help="night")
-    parser.add_argument("download", type=int, help="out_suffix")
-    parser.add_argument("out_suffix", type=str, help="out_suffix")
-
-    myargs = parser.parse_args()
-    
-    #### parse input parameters
-    tiles = myargs.tiles #These tiles correspond to Venezuela.
-    start_year = myargs.start_year
-    end_year = myargs.end_year 
-    end_month = myargs.end_month #not used...to be removed
-    start_month= myargs.start_month #not used...to be removed
-    hdfdir =  myargs.hdfdir
-    night= myargs.night    # if 1 then produce night climatology
-    out_suffix= myargs.out_suffix #"_03192013"
-    download=myargs.download# if 1 then download files
-    
-    tiles =tiles.split(",") #Create a list from string
-    #need to add on the fly creation of folder for each tile!!
-    
+        
     in_dir = "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
     Maine_counties_file = "county24.shp"
     Maine_town_file = "metwp24.shp"
@@ -120,13 +78,15 @@ def main():
     create_dir_and_check_existence(out_dir)
             
     ########## START SCRIPT #############
+    
     CRS_WGS84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
     #Read in layers from data source,there is only one layer
     reg_area_poly = ogr.Open(Maine_counties_file).GetLayer()
     reg_town = ogr.Open(Maine_town_file).GetLayer()
     #reg_area_poly <-readOGR(".",sub(".shp","",Maine_counties_file))                 #reading shapefile 
     #reg_town <-readOGR(".",sub(".shp","",Maine_town_file))                 #reading shapefile 
-
+     
+    #this can be a funciontion !!!! 
     if use_reg_extent==True:
         #get extent in WGS84 (lat long)
         src_dataset = os.path.join(in_dir,Maine_counties_file)
@@ -158,15 +118,10 @@ def main():
                            " "+coordpt2.split(",")[0],
                            " "+coordpt1.split(",")[1]])
 
-
-        #[1] "-71.083923738042 47.4598539782516 -66.8854440488051 42.9171281482886"
-        
-        reg_extent <- bbox(reg_area_poly_WGS84)
-        w_extent <- c(reg_extent[1,1],reg_extent[2,2],reg_extent[1,2],reg_extent[2,1])
-        w_extent <- paste(as.character(w_extent),collapse=" ")
-    }else{
-      w_extent <- w_extent_str #this is in WGS84
-    }
+        #w_extent= "-71.083923738042 47.4598539782516 -66.8854440488051 42.9171281482886"
+    elif use_reg_extent==False:
+        w_extent <- w_extent_str #this is in WGS84
+    #end if
 
     
     #in this case need to add folder name!!!
@@ -190,88 +145,187 @@ def main():
         with zipfile.ZipFile(l_f[i], "r") as z:
             z.extractall(l_dir[i])
             
- # loop through files
-for i in 1:len(l_f)):
-    fileglob="*.asc"
-    pathglob = os.path.join(l_dir[i], fileglob)
-    f_list = glob.glob(pathglob)
+
+            
+    # loop through files
+    for i in range(0,len(l_f)):
+        fileglob="*.asc"
+        pathglob = os.path.join(l_dir[i], fileglob)
+        f_list = glob.glob(pathglob) #sort it!!!
+        
+        #This part needs to be turned into a function!!!
+        for j in range(0,len(f_list)):
+            
+            #Should be made to act only per file so this can be parallelized!!!
+            ## FIrst for every file in hte list crop
+            #if crop==True:
+            src_dataset = os.path.join(in_dir,f_list[j])
+            dst_dataset = os.path.splitext(os.path.basename(src_dataset))[0]+file_format
+            #Need to attach origingal folder name to keep trackof all types of predictions
+            dst_dataset = os.path.basename(l_dir[i])+"_"+dst_dataset
+            dst_dataset = os.path.join(out_dir,dst_dataset)
+            
+            #src_dataset <- file.path(in_dir,f_list[[j]])
+            #in this case need to add folder name!!!
+            #dst_dataset <- paste(l_dir[[i]],sub(".asc",file_format,basename(src_dataset)),sep="_")
+            #dst_dataset <- paste(sub(file_format,"_clipped",basename(src_dataset)),file_format,sep="")
+
+            #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
+            #dst_dataset <- file.path(out_dir,dst_dataset)
+            #command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
+            
+            #Add out_suffix!!! and turn this into a function
+            cmd_str = "".join(["gdal_translate",
+                               " "+"-projwin"+" "+w_extent,
+                               " "+"-a_srs"+" '"+CRS_WGS84+"'",
+                               " "+src_dataset, 
+                               " "+dst_dataset])
+                               
+            os.system(cmd_str)
+            
+            #Seond REPROJECT
+            #if reproject ==True
+            
+            src_dataset = dst_dataset
+            #dst_dataset <- src_dataset
+            dst_dataset = os.path.splitext(os.path.basename(src_dataset))[0]+"_projected"+file_format
+            dst_dataset = os.path.join(out_dir,dst_dataset)
     
-    for j in range(0,len(f_list)):
-        src_dataset = os.path.join(in_dir,f_list[j])
-        dst_dataset = os.path.splitext(os.path.basename(src_dataset))[0]+file_format
-        dst_dataset = os.path.join(out_dir,dst_dataset)
-        
-        cmd_str = "".join(["gdal_translate",
-                           " "+"-projwin"+" "+w_extent,
-                           "-a_srs"+" '"+CRS_WGS84+"'",
-                           " "+src_dataset, 
-                           " "+dst_dataset])
-                           
-        os.system(cmd_str)
-        
-
-        #NOW REPROJECT
-        
-        src_dataset = dst_dataset
-        #dst_dataset <- src_dataset
-        dst_dataset = os.path.splitext(os.path.basename(src_dataset))[0]+"_projected"+file_format
-        dst_dataset = os.path.join(out_dir,dst_dataset)
-
-        #dst_dataset <- paste(sub(file_format,"_projected",basename(src_dataset)),file_format,sep="")
-        dst_dataset <- file.path(out_dir,dst_dataset)
-        cmd_str = "".join(["gdal_warp",
-                           "-t_srs"+" '"+CRS_reg+"'",
-                           " "+src_dataset, 
-                           " "+dst_dataset])
-                           
-        os.system(cmd_str)
+            #dst_dataset <- paste(sub(file_format,"_projected",basename(src_dataset)),file_format,sep="")
+            #dst_dataset <- file.path(out_dir,dst_dataset)
+            cmd_str = "".join(["gdalwarp",
+                               " "+"-t_srs"+" '"+CRS_reg+"'",
+                               " "+src_dataset, 
+                               " "+dst_dataset])
+                               
+            os.system(cmd_str)
 
  
-    
-  f_list = list.files(path=l_dir[[i]],pattern="*.asc",full.names=T)
-  
-  for (j in 1:length(f_list)){
-    
-    src_dataset <- file.path(in_dir,f_list[[j]])
-    #in this case need to add folder name!!!
-    dst_dataset <- paste(l_dir[[i]],sub(".asc",file_format,basename(src_dataset)),sep="_")
-    #dst_dataset <- paste(sub(file_format,"_clipped",basename(src_dataset)),file_format,sep="")
 
-    #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
-    dst_dataset <- file.path(out_dir,dst_dataset)
-    #command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
-    command_str <-paste("gdal_translate", 
-                    "-projwin", w_extent, 
-                    "-a_srs", paste("'","+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs","'",sep=" "), 
-                    src_dataset, dst_dataset ,sep=" ")
-    #Input file size is 161190, 104424        
-    system(command_str)
-
-    ## Now reproject 
-    src_dataset <- dst_dataset
-    #dst_dataset <- src_dataset
-    dst_dataset <- paste(sub(file_format,"_projected",basename(src_dataset)),file_format,sep="")
-    #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
-    dst_dataset <- file.path(out_dir,dst_dataset)
-
-    command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), src_dataset, dst_dataset,sep=" ")
-    #t_rsrs : target/output spatial ref system
-    system(command_str)
-
-    #reg_extent_str <- paste(as.character(as.vector(reg_extent)),collapse=" ")
-    #command_str <- paste("gdalwarp", "-t_srs",paste("'",CRS_reg,"'",sep=""), 
-    #                     #"-te",paste("'",reg_extent_str,"'",sep=""),
-    #                     "-te",reg_extent_str,
-    #                     src_dataset, dst_dataset,sep=" ")
-  }
-
-}
-
-
-    ################## First step: download data ###################
+    ################## NEXTstep: process landcover data ###################
     # Added tile loop 
-    year_list=range(start_year,end_year+1) #list of year to loop through
    
+    #dat_proj <- spTransform(reg_area_poly,CRS("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")) 
+
+    #reg_area_poly
+    #reg_extent<- bbox(dat_proj)
+    #reg_extent <- bbox(reg_area_poly_WGS84)
+    #w_extent <- c(reg_extent[1,1],reg_extent[2,2],reg_extent[1,2],reg_extent[2,1])
+    #w_extent <- paste(as.character(w_extent),collapse=" ")
+
+    #Write a quick wrapper function later on... should have prefix!!!
+    src_dataset = os.path.join(in_dir,Maine_counties_file) 
+    dst_dataset = os.path.splitext(src_dataset)[0]+"_US_AEA"+os.path.splitext(src_dataset)[1]
+    dst_dataset = os.path.join(out_dir,dst_dataset)
+
+    #Make this general provide a target projection sys ...via CRS_proj instead of CRS_WGS84
+    CRS_aea = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
+    CRS_dst = CRS_aea
+    
+    cmd_str = "".join(["ogr2ogr",
+                       " "+"-f "+"'ESRI Shapefile'",  
+                       " "+"-t_srs"+" '"+CRS_dst+"'",
+                       " "+"-overwrite",
+                       " "+dst_dataset, 
+                       " "+src_dataset])
+    os.system(cmd_str)
+        
+    #reg_area_poly_WGS84 <- spTransform(reg_area_poly,CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")) 
+    #reg_lyr= ogr.Open(dst_dataset).GetLayer(0)    
+    #reg_extent = reg_lyr.GetExtent() #tuple object, not working right now
+    #Make this a function?
+    #ogrinfo worldborder_sinusoidal.shp -so -al | grep Extent #givs xmin,ymin and xmax ymax
+    cmd_str = "".join(["ogrinfo ",dst_dataset," -so -al"," | grep Extent"])
+    os.system(cmd_str)
+        
+    reg_extent = subprocess.check_output(cmd_str, shell=True)
+    reg_extent=reg_extent.split(" - ")
+    coordpt1 = re.compile("\((.*)\)").search(reg_extent[0]).group(1)
+    coordpt2 = re.compile("\((.*)\)").search(reg_extent[1]).group(1)
+    w_extent = "".join([coordpt1.split(",")[0],
+                        " "+coordpt2.split(",")[1],
+                        " "+coordpt2.split(",")[0],
+                        " "+coordpt1.split(",")[1]])
+
+    #w_extent<-project(mat_coord_extent,
+#   # proj="+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+    #w_extent <- paste(as.character(w_extent),collapse=" ")
+    #w_extent <- paste(as.character(bbox(dat)),collapse=" ")
+
+    #as.character(as.vector(t(coordinates(dat))))
+    #w_extent <- paste(as.character(t(coordinates(dat))),collapse=" ")
+
+    ### end of function
+
+    f_list <- list.files(path=in_dir,pattern="nlcd.*.img",full.names=T)
+    
+    fileglob = "*nlcd*.img"
+    pathglob = os.path.join(in_dir, fileglob)
+    f_list = glob.glob(pathglob)
+#    l_dir = map(lambda x: os.path.splitext(x)[0],l_f) #similar to laplly in R
+
+        for j in range(0,len(f_list)):
+            #### Function parameters
+            #in_dir: input directory
+            #out_dir: output dir
+            #in_file: input raster file
+            #out_suffix: string
+            #CRS_dst: projecction for the output
+            #CRS_src: projection for the input
+            #file_format: output file format...(tiff as default)
+            
+            in_file=f_list[j]
+            CRS_src = CRS_aea
+            CRS_dst = CRS_reg
+            #Should be made to act only per file so this can be parallelized!!!
+            ## FIrst for every file in hte list crop
+            #if crop==True:
+            src_dataset = os.path.join(in_dir,in_file)
+            dst_dataset = os.path.splitext(os.path.basename(src_dataset))[0]+"_clipped_"+out_suffix+file_format
+            #Need to attach origingal folder name to keep trackof all types of predictions
+            #dst_dataset = os.path.basename(l_dir[i])+"_"+dst_dataset
+            dst_dataset = os.path.join(out_dir,dst_dataset)
+            
+            #src_dataset <- file.path(in_dir,f_list[[j]])
+            #in this case need to add folder name!!!
+            #dst_dataset <- paste(l_dir[[i]],sub(".asc",file_format,basename(src_dataset)),sep="_")
+            #dst_dataset <- paste(sub(file_format,"_clipped",basename(src_dataset)),file_format,sep="")
+
+            #dst_dataset <- file.path(out_dir,sub(".asc",file_format,basename(src_dataset)))
+            #dst_dataset <- file.path(out_dir,dst_dataset)
+            #command_str <-paste("gdal_translate", src_dataset, dst_dataset ,sep=" ") #without spatial subsetting
+            
+            #Add out_suffix!!! and turn this into a function
+            
+            cmd_str = "".join(["gdal_translate",
+                               " "+"-projwin"+" "+w_extent,
+                               " "+"-a_srs"+" '"+CRS_src+"'",
+                               " "+src_dataset, 
+                               " "+dst_dataset])
+                               
+            os.system(cmd_str)
+            
+            #Seond REPROJECT
+            #if reproject ==True
+            
+            src_dataset = dst_dataset #change in case the first step is not carried out
+            #dst_dataset <- src_dataset
+            dst_dataset = os.path.splitext(os.path.basename(src_dataset))[0]+"_projected_"+out_suffix+file_format
+            dst_dataset = os.path.join(out_dir,dst_dataset)
+    
+            #dst_dataset <- paste(sub(file_format,"_projected",basename(src_dataset)),file_format,sep="")
+            #dst_dataset <- file.path(out_dir,dst_dataset)
+            cmd_str = "".join(["gdalwarp",
+                               " "+"-t_srs"+" '"+CRS_reg+"'",
+                               " "+src_dataset, 
+                               " "+dst_dataset])
+                               
+            os.system(cmd_str)
+            
+            
+            #return
+            #end of function
+
     return None
     
 #Need to add this to run
@@ -279,3 +333,14 @@ if __name__ == '__main__':
     main()
 
 
+#ogrinfo clipping_mask.shp -so -al | grep Extent
+
+# which gives the extent as xMin,yMin, xMax, yMax:
+#Extent: (268596, 5362330) - (278396, 5376592)
+# which is (xMin,yMin) - (xMax,yMax)
+#Then copy and paste that text to create your gdal_translate clipping command:
+
+# -projwin's ulx uly lrx lry is equivalent to xMin, yMax, xMax, yMin so just switch the Y coordinates
+# For the above Extent that would turn into:
+
+#gdal_translate -projwin 268596 5376592 278396 5362330 src_dataset dst_dataset
