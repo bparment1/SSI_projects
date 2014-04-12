@@ -25,6 +25,8 @@ from osgeo import osr
 from osgeo import gdal_array
 from osgeo import gdalconst
 import psycopg2
+import numpy
+
 #------------------
 # Functions used in the script 
 #------------------
@@ -66,6 +68,21 @@ def natural_keys(text):
     '''
     return [ atoi(c) for c in re.split('(\d+)', text) ]
 
+def create_summary_table(list_rows,nb_rows,nb_columns, out_dir,out_suffix):
+    #
+    table = numpy.ones((16,48))
+    #add ID first...?
+    for i in range(0,48):
+        rows_output = list_rows[i]
+        for j in range(0,16):
+            tu = rows_output[j]
+            table[j,i] = tu[2]
+    fname = "table_"+out_suffix+".txt"       
+    outfile1 = os.join.path(in_dir,fname)
+    numpy.savetxt(outfile1, table, fmt='%-7.6f')
+
+        
+    
 ## Need to add more functions by breaking out code!!...
 
 ## add function for use in multiprocessing pool
@@ -88,8 +105,8 @@ def main():
  
     ########## START OF SCRIPT ##############
         
-    #in_dir = "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
-    in_dir = "/ssi-dss-data/DSS_SSI_data/"
+    in_dir = "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
+    #in_dir = "/ssi-dss-data/DSS_SSI_data/"
     polygon_input_shp_file = "county24.shp"
     #polygon_input_shp_file = "metwp24.shp"
 
@@ -108,8 +125,10 @@ def main():
             
     #Database information       
     db_name ="test_ssi_db2"
-    user_name = "benoit"
-    postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"
+    #user_name = "benoit"
+    user_name = "parmentier" 
+    #postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"
+    postgres_path_bin = ""
     
     polygon_input_shp_table = "counties"    
     #polygon_input_shp_table = "towns"
@@ -125,7 +144,7 @@ def main():
     l_f_temp.sort(key=natural_keys) #mixed sorting of files
     l_f_tmin = filter(lambda x: re.search(r'tmin',x),l_f_temp)
 
-    l_f = l_f_tmin[0:5]
+    l_f = l_f_tmin
     #def grep_fun(l,s):
     #    return [i for i in l if re.search(r'aet',i)]
         
@@ -142,7 +161,7 @@ def main():
     
     #INPUT PARAMETERS
 
-    postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"
+    #postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"
     #Database information       
     #db_name ="test_ssi_db2"
     #user_name = "benoit"
@@ -158,12 +177,17 @@ def main():
         #output_table_rast = "mtemp"
         output_table_rast ="".join(["mtemp_",str(i)])
         poly_table = "".join(["mht_poly_use_",str(i)]) #This is the name of the table that will store the values of 
+        #output_table_rast ="mtemp"
+        #poly_table = "mht_poly_use" #This is the name of the table that will store the values of 
         
         #polygon_input_shp_file
         shp_input = os.path.join(in_dir,polygon_input_shp_file)
         output_table_shp = "".join([polygon_input_shp_table,str(i)])
+        #output_table_shp = polygon_input_shp_table
+
         ##OPEN A CONNECTION IN THE DATABASE
         
+        ##Make this a function
         sys.path.append(postgres_path_bin)
         #sys.path.append(postgres_path_bin)
         try:
@@ -175,8 +199,13 @@ def main():
         conn.set_isolation_level(0) #change isolation level,so that we are not in transaction mode
     
         cur = conn.cursor()
+        #end of function
         
         ## IMPORT SHAPEFILE IN TABLE
+        SQL_str = "DROP TABLE IF EXISTS %s;" % (output_table_shp)
+        cur.execute(SQL_str) #Should collect all commands executed in a file (for later)
+        
+        #Make this a function
         
         cmd_str = "".join([postgres_path_bin,
                           "shp2pgsql",
@@ -190,6 +219,8 @@ def main():
         os.system(cmd_str)
      
         ## IMPORT RASTER IN POSTGIS
+        SQL_str = "DROP TABLE IF EXISTS %s;" % (output_table_rast)
+        cur.execute(SQL_str) #Should collect all commands executed in a file (for later)
         
         cmd_str = "".join([postgres_path_bin,
                           "raster2pgsql",
@@ -233,12 +264,20 @@ def main():
         save_data(rows,fname)
         
         #test1 =load_data(fname)
-
+        fname = "list_rows_"+out_suffix+".dat"
+        fname = os.path.join(out_dir,fname)
+        save_data(list_rows,fname)
+        
         #return rows
                 
         #Parse in Python or have a table in Postgres...        
         #return
         #end of function
+    
+    #Write out results by combining
+    
+    create_summary_table(list_rows,in_dir,out_suffix)
+        
 
     return None
     
