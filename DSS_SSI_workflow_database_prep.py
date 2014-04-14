@@ -30,7 +30,7 @@ from osgeo import osr        #Georeferencing: Spatial refreferen system for geog
 from osgeo import gdal_array #gdal geographic library
 from osgeo import gdalconst  #gdal geographic library
 import psycopg2              # Postgres binding, SQL query etc
-import numpy                 #Array, matrices and scientific computing
+import numpy as np                #Array, matrices and scientific computing
 import pickle                #Object serialization
 from multiprocessing import Process, Manager, Pool #parallel processing
 import pdb                   #for debugging
@@ -84,7 +84,7 @@ def create_summary_table(list_rows,nb_rows,nb_columns, out_dir,out_suffix):
     #This only takes the mean right now so could store other information
     #later!!!
 
-    table = numpy.ones((nb_rows,nb_columns))
+    table = np.ones((nb_rows,nb_columns))
     #add ID first...?
     #nb_coumns=48+1 (ID)
     #nb_rows=16
@@ -96,7 +96,7 @@ def create_summary_table(list_rows,nb_rows,nb_columns, out_dir,out_suffix):
             
     fname = "table_"+out_suffix+".txt"       
     outfile1 = os.path.join(out_dir,fname)
-    numpy.savetxt(outfile1, table, fmt='%-7.6f')
+    np.savetxt(outfile1, table, fmt='%-7.6f')
     return(table)
     
     ## NEED TO ADD and ID Column!!!
@@ -257,7 +257,8 @@ def main():
  
     ########## READ AND PARSE PARAMETERS AND ARGUMENTS #########
         
-    in_dir ="/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/output_data_03242014"
+    #This is the directory of the processed data    
+    in_dir ="/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data"
     shp_fname = os.path.join("/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
                                            ,"county24.shp")
     #polygon_input_shp_file = "metwp24.shp"
@@ -284,13 +285,19 @@ def main():
     #polygon_input_shp_table = "towns"
     #loop through files...
     fileglob_pattern = "*projected*ncar*.tif"
-    pathglob = os.path.join(in_dir, fileglob_pattern)
+    pathglob = os.path.join(out_dir, fileglob_pattern)
     l_f_temp = glob.glob(pathglob)
     l_f_temp.sort(key=natural_keys) #mixed sorting of files
     
     ########## START SCRIPT #############
          
     ## Temp processing: 2020s,2030s,2040s,2050s for tmin, tmax and tmean (e.g. 4*3 directories with 12 files...)
+
+    #1.download...not automated...
+    #2.unzip asc or grd (arc grid)
+    #3.convert to tif (gdal_tranlslate)
+    #4.reproject and clip/subset for Maine region (clip using count24?)
+
 
     #Get tmin files
     l_f_tmin = filter(lambda x: re.search(r'tmin',x),l_f_temp)
@@ -360,8 +367,39 @@ def main():
     nb_rows = len(list_rows_tmean[0])
     #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
     table_mean = create_summary_table(list_rows_tmean,nb_rows,nb_columns, out_dir,out_suffix)
-
-
+ 
+    #NOW FORMAT TALBE TO PUT IN POSTGIS!!!
+    var_info = create_var_names_from_files(l_f_tmean)
+    
+    decades_list = map (lambda x: x["decade"],var_info) #exracct decades
+    month_list = map (lambda x: x["month"],var_info) #exracct decades
+    var_list = map (lambda x: x["var"],var_info) #exracct decades
+    
+    
+    
+    def create_var_names_from_files(f_list):
+        #assume the following string structure
+        #tmax_1_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc04122014
+        list_var_info_dict = []
+        for j in range(0,len(f_list)):
+            
+            filename= os.path.basename(f_list[j])
+            list_str= filename.split("_")
+            month = list_str[1]
+            decade = list_str[9][0:4]
+            var = list_str[0]
+            var_info_dict = {}
+            var_info_dict["var"] = var
+            var_info_dict["month"] = month
+            var_info_dict["decade"] = decade
+            
+            list_var_info_dict.append(var_info_dict)
+        
+        return list_var_info_dict
+        
+    table.ravel(order="F") #flatten the array by moving down columns
+    #extract_names from raster files...
+    #format_table_for_postgis
     #create_summary_table(list_rows_min,nb_rows,nb_columns,out_dir,out_suffix)
         
     #Write function to add back the tables in postgis and join them?   
