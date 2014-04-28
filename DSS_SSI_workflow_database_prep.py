@@ -8,7 +8,7 @@
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 04/12/2014
+# Updated on: 04/28/2014
 
 # TODO:
 #  - functionalize to encapsulate high level procedural steps
@@ -30,10 +30,11 @@ from osgeo import osr        #Georeferencing: Spatial refreferen system for geog
 from osgeo import gdal_array #gdal geographic library
 from osgeo import gdalconst  #gdal geographic library
 import psycopg2              # Postgres binding, SQL query etc
-import numpy as np                #Array, matrices and scientific computing
+import numpy                 #Array, matrices and scientific computing
 import pickle                #Object serialization
 from multiprocessing import Process, Manager, Pool #parallel processing
 import pdb                   #for debugging
+import pandas as pd
 
 ################ NOW FUNCTIONS  ###################
 #------------------
@@ -43,8 +44,7 @@ import pdb                   #for debugging
 def create_dir_and_check_existence(path):
     #Create a new directory
     try:
-        os.makedirs(path)
-        
+        os.makedirs(path)        
     except:
         print "directory already exists"
             
@@ -77,28 +77,24 @@ def natural_keys(text):
     '''
     return [ atoi(c) for c in re.split('(\d+)', text) ]
 
-def create_summary_table(list_rows,nb_rows,nb_columns, out_dir,out_suffix):
+def create_summary_table(list_rows,nb_rows,nb_columns, element_nb,out_dir,out_suffix):
     #This works but really needs to be improved!!
     #This function creates a table from the list wiht averages by
     #polygons. We used a numpy array rather than a numpy record array.
     #This only takes the mean right now so could store other information
     #later!!!
-
-    table = np.ones((nb_rows,nb_columns))
+    
+    table = numpy.ones((nb_rows,nb_columns))
     #add ID first...?
-    #nb_coumns=48+1 (ID)
-    #nb_rows=16
     for i in range(0,nb_columns):
         rows_output = list_rows[i]
         for j in range(0,nb_rows):
             tu = rows_output[j]
-            table[j,i] = tu[2]
-            
+            table[j,i] = tu[element_nb]
     fname = "table_"+out_suffix+".txt"       
     outfile1 = os.path.join(out_dir,fname)
-    np.savetxt(outfile1, table, fmt='%-7.6f')
-    return(table)
-    
+    numpy.savetxt(outfile1, table, fmt='%-7.6f')
+    return table
     ## NEED TO ADD and ID Column!!!
     #May be add function to also store other values...        
    
@@ -257,152 +253,86 @@ def main():
  
     ########## READ AND PARSE PARAMETERS AND ARGUMENTS #########
         
-    #This is the directory of the processed data    
-    in_dir ="/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data"
-    shp_fname = os.path.join("/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
-                                           ,"county24.shp")
+    #in_dir_poly =     #in_dir = "/ssi-dss-data/DSS_SSI_data/"
+    #in_dir ="/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
+    in_dir ="/ssi-dss-data/DSS_SSI_data"
+    
+    shp_fname = os.path.join(in_dir,"county24.shp")
     #polygon_input_shp_file = "metwp24.shp"
 
+    #EPSG: http://spatialreference.org/ref/epsg/26919/proj4/ -->  
+    #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
     out_suffix = "04122014"
     os.chdir(in_dir) #set current dir
     #os.getcwd() #check current dir
     out_dir = in_dir
 
+    #out_path<-"/data/project/layers/commons/data_workflow/output_data"
     out_dir = "output_data_"+out_suffix
     out_dir = os.path.join(in_dir,out_dir)
     create_dir_and_check_existence(out_dir)
     
     #EPSG: http://spatialreference.org/ref/epsg/26919/proj4/ -->  
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
+    #file_format = ".tif"
+
     SRS_EPSG = "2037"             
     #Database information       
     db_name ="test_ssi_db2"
     #user_name = "benoit"
     user_name = "parmentier" 
     #postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"
-    postgres_path_bin = ""   
+    postgres_path_bin = ""
+    
     #polygon_input_shp_table = "counties"    
     #polygon_input_shp_table = "towns"
-    #loop through files...
-    fileglob_pattern = "*projected*ncar*.tif"
-    pathglob = os.path.join(out_dir, fileglob_pattern)
-    l_f_temp = glob.glob(pathglob)
-    l_f_temp.sort(key=natural_keys) #mixed sorting of files
     
     ########## START SCRIPT #############
          
     ## Temp processing: 2020s,2030s,2040s,2050s for tmin, tmax and tmean (e.g. 4*3 directories with 12 files...)
 
-    #1.download...not automated...
-    #2.unzip asc or grd (arc grid)
-    #3.convert to tif (gdal_tranlslate)
-    #4.reproject and clip/subset for Maine region (clip using count24?)
-
-
+    #loop through files...
+    fileglob = "ncar*projected.tif"
+    pathglob = os.path.join(in_dir, fileglob)
+    l_f_temp = glob.glob(pathglob)
+    l_f_temp.sort(key=natural_keys) #mixed sorting of files
     #Get tmin files
     l_f_tmin = filter(lambda x: re.search(r'tmin',x),l_f_temp)
     #Get tmax files
-    l_f_tmax = filter(lambda x: re.search(r'tmax',x),l_f_temp)
-    #Get tmean files
-    l_f_tmean = filter(lambda x: re.search(r'tmean',x),l_f_temp)
-
     
     list_rows_tmin = [] # defined lenth right now
-    
+    #i=1
+    #This will be parallielized
+    #debug   
     rast_fname = l_f_tmin #copy by refernce!!
-    #debug
     #list_rows_tmin.append(i) = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix,rast_fname,shp_fname,
 
-    #This will be parallelized
-    #can make one additional loop to reduce the repitition with tmin, tmax and tmean
-    for i in range(0,len(rast_fname)):
-    #for i in range(0,2):      
+    #for i in range(0,len(rast_fname)):
+    for i in range(0,2):      
         rows = caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
         list_rows_tmin.append(rows) #add object rows to list
-
-    list_rows_tmax = [] # defined lenth right now
-    rast_fname = l_f_tmax #copy by refernce!!
-    
-    for i in range(0,len(rast_fname)):
-    #for i in range(0,2):      
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
-        list_rows_tmax.append(rows) #add object rows to list
-    
-    
-    list_rows_tmean = [] # defined lenth right now
-    rast_fname = l_f_tmean #copy by refernce!!
-    
-    for i in range(0,len(rast_fname)):
-    #for i in range(0,2):      
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
-        list_rows_tmean.append(rows) #add object rows to list
 
     #Write out results by combining
     #test1 =load_data(fname)
     fname = "list_rows_min_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
-    save_data(list_rows_tmin,fname)
+    save_data(list_rows,fname)
     
-    nb_columns = len(list_rows_tmin) # + 1
-    nb_rows = len(list_rows_tmin[0])
-    #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
-    table_tmin = create_summary_table(list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
+    out_dir = "/ssi-dss-data/DSS_SSI_data/output_data_04122014"
+    list_rows_mean = load_data(os.path.join(out_dir,"list_rows_mean_04122014.dat"))
+    
+    nb_columns=len(list_rows_mean)
+    nb_columns=48
 
-    ##Write out tmax
-    fname = "list_rows_max_"+out_suffix+".dat"
-    fname = os.path.join(out_dir,fname)
-    save_data(list_rows_tmax,fname)
-    
-    nb_columns = len(list_rows_tmax) # + 1
-    nb_rows = len(list_rows_tmax[0])
-    #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
-    table_max = create_summary_table(list_rows_tmax,nb_rows,nb_columns, out_dir,out_suffix)
-    
-    ##Write out tmean
-    fname = "list_rows_mean_"+out_suffix+".dat"
-    fname = os.path.join(out_dir,fname)
-    save_data(list_rows_tmean,fname)
-    
-    nb_columns = len(list_rows_tmean) # + 1
-    nb_rows = len(list_rows_tmean[0])
-    #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
-    table_mean = create_summary_table(list_rows_tmean,nb_rows,nb_columns, out_dir,out_suffix)
- 
-    #NOW FORMAT TALBE TO PUT IN POSTGIS!!!
-    var_info = create_var_names_from_files(l_f_tmean)
-    
-    decades_list = map (lambda x: x["decade"],var_info) #exracct decades
-    month_list = map (lambda x: x["month"],var_info) #exracct decades
-    var_list = map (lambda x: x["var"],var_info) #exracct decades
-    
-    
-    
-    def create_var_names_from_files(f_list):
-        #assume the following string structure
-        #tmax_1_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc04122014
-        list_var_info_dict = []
-        for j in range(0,len(f_list)):
-            
-            filename= os.path.basename(f_list[j])
-            list_str= filename.split("_")
-            month = list_str[1]
-            decade = list_str[9][0:4]
-            var = list_str[0]
-            var_info_dict = {}
-            var_info_dict["var"] = var
-            var_info_dict["month"] = month
-            var_info_dict["decade"] = decade
-            
-            list_var_info_dict.append(var_info_dict)
+    nb_rows=16
+    #test = pdb.runcall(create_summary_table,list_rows_mean,nb_rows,nb_columns,out_dir,out_suffix)
+    element_nb=2 #this is the column containing the mean for each entity (third column from postgis table)    
+    test = create_summary_table(list_rows_mean,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
         
-        return list_var_info_dict
+    element_nb=0 #this is the column containing the mean for each entity (third column from postgis table)    
+    id_reg = create_summary_table(list_rows_mean,nb_rows,nb_columns=1,element_nb,out_dir,out_suffix)
         
-    table.ravel(order="F") #flatten the array by moving down columns
-    #extract_names from raster files...
-    #format_table_for_postgis
-    #create_summary_table(list_rows_min,nb_rows,nb_columns,out_dir,out_suffix)
-        
-    #Write function to add back the tables in postgis and join them?   
+    table_mean = np.hstack(id_reg,)    
     return None
     
 #Need to add this to run
