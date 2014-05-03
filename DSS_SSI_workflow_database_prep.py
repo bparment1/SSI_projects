@@ -8,7 +8,7 @@
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 04/28/2014
+# Updated on: 05/03/2014
 
 # TODO:
 #  - functionalize to encapsulate high level procedural steps
@@ -77,7 +77,7 @@ def natural_keys(text):
     '''
     return [ atoi(c) for c in re.split('(\d+)', text) ]
 
-def create_summary_table(list_rows,nb_rows,nb_columns, element_nb,out_dir,out_suffix):
+def create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix):
     #This works but really needs to be improved!!
     #This function creates a table from the list wiht averages by
     #polygons. We used a numpy array rather than a numpy record array.
@@ -98,28 +98,28 @@ def create_summary_table(list_rows,nb_rows,nb_columns, element_nb,out_dir,out_su
     ## NEED TO ADD and ID Column!!!
     #May be add function to also store other values...        
 
-    def create_var_names_from_files(f_list):
-        #assume the following string structure
-        #tmax_1_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc04122014
-        list_var_info_dict = []
-        for j in range(0,len(f_list)):
-            
-            filename= os.path.basename(f_list[j])
-            list_str= filename.split("_")
-            month = list_str[1]
-            decade = list_str[9][0:4]
-            var = list_str[0]
-            var_info_dict = {}
-            var_info_dict["var"] = var
-            var_info_dict["month"] = month
-            var_info_dict["decade"] = decade
-            
-            list_var_info_dict.append(var_info_dict)
+def create_var_names_from_files(f_list):
+    
+    #assume the following string structure
+    #tmax_1_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc04122014
+    list_var_info_dict = []
+    for j in range(0,len(f_list)):
         
-        return list_var_info_dict
+        filename= os.path.basename(f_list[j])
+        list_str= filename.split("_")
+        month = list_str[1]
+        decade = list_str[9][0:4]
+        var = list_str[0]
+        var_info_dict = {}
+        var_info_dict["var"] = var
+        var_info_dict["month"] = month
+        var_info_dict["decade"] = decade
+        
+        list_var_info_dict.append(var_info_dict)
+    
+    return list_var_info_dict
    
-def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,
-    SRS_EPSG,postgres_path_bin,db_name,user_name):
+def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name):
     
     #This function calculate summary statistic i.e. average per region in the
     #input shapefile.
@@ -256,7 +256,7 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,
     cur.close()
     conn.close()
     
-    return(rows_table)
+    return rows_table
     
     
 #######################################################################
@@ -282,7 +282,7 @@ def main():
 
     #EPSG: http://spatialreference.org/ref/epsg/26919/proj4/ -->  
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
-    out_suffix = "04122014"
+    out_suffix = "05032014"
     os.chdir(in_dir) #set current dir
     #os.getcwd() #check current dir
     out_dir = in_dir
@@ -292,17 +292,19 @@ def main():
     out_dir = os.path.join(in_dir,out_dir)
     create_dir_and_check_existence(out_dir)
     
+    os.chdir(out_dir) #set working directory        
+
     #EPSG: http://spatialreference.org/ref/epsg/26919/proj4/ -->  
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
     #file_format = ".tif"
 
     SRS_EPSG = "2037"             
     #Database information       
-    db_name ="test_ssi_db2"
-    #user_name = "benoit"
-    user_name = "parmentier" 
-    #postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"
-    postgres_path_bin = ""
+    db_name ="test_ssi_db3"
+    user_name = "benoit"
+    #user_name = "parmentier" 
+    postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"  #on SSI Maine
+    #postgres_path_bin = ""  #on ATLAS NCEAS
     
     #polygon_input_shp_table = "counties"    
     #polygon_input_shp_table = "towns"
@@ -329,19 +331,20 @@ def main():
     l_f_tmax = filter(lambda x: re.search(r'tmax',x),l_f_temp)
     #Get tmean files
     l_f_tmean = filter(lambda x: re.search(r'tmean',x),l_f_temp)
-
     
     list_rows_tmin = [] # defined lenth right now
     
     rast_fname = l_f_tmin #copy by refernce!!
+    dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax, "tmean": l_f_tmean }
     #debug
-    #list_rows_tmin.append(i) = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix,rast_fname,shp_fname,
+    #test = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
 
-    #This will be parallelized
+    #This will be parallelized and looped through dict_rast_fname
     #can make one additional loop to reduce the repitition with tmin, tmax and tmean
     for i in range(0,len(rast_fname)):
-    #for i in range(0,2):      
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
+    #for i in range(0,2):    
+        out_suffix_s = "tmin_"+out_suffix
+        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
         list_rows_tmin.append(rows) #add object rows to list
 
     list_rows_tmax = [] # defined lenth right now
@@ -349,16 +352,17 @@ def main():
     
     for i in range(0,len(rast_fname)):
     #for i in range(0,2):      
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
+        out_suffix_s = "tmax_"+out_suffix
+        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
         list_rows_tmax.append(rows) #add object rows to list
-    
-    
+        
     list_rows_tmean = [] # defined lenth right now
     rast_fname = l_f_tmean #copy by refernce!!
     
     for i in range(0,len(rast_fname)):
-    #for i in range(0,2):      
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
+    #for i in range(0,2):     
+        out_suffix_s = "tmean_"+out_suffix
+        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
         list_rows_tmean.append(rows) #add object rows to list
 
     #Write out results by combining
@@ -370,18 +374,49 @@ def main():
     nb_columns = len(list_rows_tmin) # + 1
     nb_rows = len(list_rows_tmin[0])
     #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
-    table_tmin = create_summary_table(list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
+    #table_tmin = create_summary_table(list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
+    #create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
 
     ##Write out tmax
     fname = "list_rows_max_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_rows_tmax,fname)
     
-    nb_columns = len(list_rows_tmax) # + 1
-    nb_rows = len(list_rows_tmax[0])
-    #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
-    table_max = create_summary_table(list_rows_tmax,nb_rows,nb_columns, out_dir,out_suffix)
+    #list_rows_summary = [list_rows_tmin,list_rows_tmax,list_rows_tmean]
+    dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
+    dict_table = {}
     
+    for i in range(0,len(list_rows_summary)):
+        list_rows = dict_rows_summary.values()[i]
+        var_name = dict_rows_summary.keys()[i]
+        nb_columns = len(list_rows) # + 1
+        nb_rows = len(list_rows[0])
+        element_nb = 2 #this is the column containing the mean for each entity (third column from postgis table)    
+        #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
+        table = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
+        dict_table[var_name] = table
+        #Now add id back...
+        nb_columns = 1
+        element_nb = 0 #this is the column containing the mean for each entity (third column from postgis table)    
+        id_reg = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
+        region_id = ["%.0d" % number for number in id_reg]
+        #"".join([["f_"]*len(region_id),region_id])    
+        #NOW FORMAT TALBE TO PUT IN POSTGIS!!!
+        l_f = dict_rast_fname.values()[i]       
+        var_info = create_var_names_from_files(l_f)
+        df_var = pd.DataFrame(np.transpose(table))
+        #df_var.columns = region_id
+        df_info = pd.DataFrame(var_info)
+        #df_info = pd.DataFrame(var_info)
+        df = pd.concat([df_info,df_var]) #This is a dataframe with the avg mean per region
+        tmp_name = ["decade","month","var"] + region_id
+        df.columns = tmp_name    
+        df.to_csv("table_"+var_name+"_df.csv",sep=",") #write out table
+        #Now reshape to have a 48*16 rows and 4 columns... the last should be ID region
+        del table
+
+         
+        
     ##Write out tmean
     fname = "list_rows_mean_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
@@ -399,20 +434,14 @@ def main():
 
     #nb_rows=16
     #test = pdb.runcall(create_summary_table,list_rows_mean,nb_rows,nb_columns,out_dir,out_suffix)
-    element_nb=2 #this is the column containing the mean for each entity (third column from postgis table)    
     test = create_summary_table(list_rows_mean,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
         
     element_nb=0 #this is the column containing the mean for each entity (third column from postgis table)    
     id_reg = create_summary_table(list_rows_mean,nb_rows,nb_columns=1,element_nb,out_dir,out_suffix)
     region_id = ["%.0d" % number for number in id_reg]
     "".join([["f_"]*len(region_id),region_id])    
-    #table_mean = np.hstack((id_reg,test))    
-    #table_mean = np.transpose(table_mean)
     #NOW FORMAT TALBE TO PUT IN POSTGIS!!!
     var_info = create_var_names_from_files(l_f_tmean)
-    #decades_list = map (lambda x: x["decade"],var_info) #exracct decades
-    #month_list = map (lambda x: x["month"],var_info) #exracct decades
-    #var_list = map (lambda x: x["var"],var_info) #exracct decades
     df_var = pd.DataFrame(np.transpose(test))
     df_info = pd.DataFrame(var_info)
     df = pd.concat(df_var,df_info) #This is a dataframe with the avg mean per region
