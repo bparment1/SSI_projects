@@ -118,7 +118,58 @@ def create_var_names_from_files(f_list):
         list_var_info_dict.append(var_info_dict)
     
     return list_var_info_dict
-   
+    
+def shp_to_data_frame(shp_fname):
+    driver = ogr.GetDriverByName("ESRI Shapefile")
+    ds =driver.Open(shp_fname,0)
+    if ds is None:
+        print "Could not open file"
+        sys.exit(1)
+    lyr= ds.GetLayer(0)    
+    feature= lyr.GetFeature(0)
+    #Now get the attributes...
+    #make this a function
+    layerDefinition = lyr.GetLayerDefn()
+    column_names = []
+    ncolumn = layerDefinition.GetFieldCount()
+    for i in range(layerDefinition.GetFieldCount()):       
+        column_names.append(layerDefinition.GetFieldDefn(i).GetName())
+    #table = {}
+    value_att = []
+    list_values = [] 
+    for column in column_names:
+        name=column
+        for feature in lyr:               
+            value=feature.GetField(name)
+            value_att.append(value)
+            
+        list_values.append(value_att)
+
+    #print "Name  -  Type  Width  Precision"
+    
+
+def get_vct_FieldName(shp_fname):
+    driver = ogr.GetDriverByName("ESRI Shapefile")
+    ds =driver.Open(shp_fname,0)
+    if ds is None:
+        print "Could not open file"
+        sys.exit(1)
+    lyr= ds.GetLayer(0)    
+    #make this a function
+    layerDefinition = lyr.GetLayerDefn()
+    list_names = []
+    #print "Name  -  Type  Width  Precision"
+    for i in range(layerDefinition.GetFieldCount()):  
+        fieldName =  layerDefinition.GetFieldDefn(i).GetName()
+        fieldTypeCode = layerDefinition.GetFieldDefn(i).GetType()
+        fieldType = layerDefinition.GetFieldDefn(i).GetFieldTypeName(fieldTypeCode)
+        fieldWidth = layerDefinition.GetFieldDefn(i).GetWidth()
+        GetPrecision = layerDefinition.GetFieldDefn(i).GetPrecision()
+        info = [fieldName,fieldType,str(fieldWidth),GetPrecision]
+        list_names.append(info)
+        #print fieldName + " - " + fieldType+ " " + str(fieldWidth) + " " + str(GetPrecision)
+    return list_names
+
 def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name):
     
     #This function calculate summary statistic i.e. average per region in the
@@ -338,7 +389,10 @@ def main():
     dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax, "tmean": l_f_tmean }
     #debug
     #test = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
-
+    
+    ### IMPORTANT BEFORE RUNNING THE QUERY WE NEED TO MODIFY THE SHP TO HAVE A ID FIELD, NAME FIELD AND TYPE FIELD
+    
+    
     #This will be parallelized and looped through dict_rast_fname
     #can make one additional loop to reduce the repitition with tmin, tmax and tmean
     for i in range(0,len(rast_fname)):
@@ -386,7 +440,7 @@ def main():
     dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
     dict_table = {}
     
-    for i in range(0,len(list_rows_summary)):
+    for i in range(0,len(dict_rows_summary)):
         list_rows = dict_rows_summary.values()[i]
         var_name = dict_rows_summary.keys()[i]
         nb_columns = len(list_rows) # + 1
@@ -405,51 +459,38 @@ def main():
         l_f = dict_rast_fname.values()[i]       
         var_info = create_var_names_from_files(l_f)
         df_var = pd.DataFrame(np.transpose(table))
-        #df_var.columns = region_id
+        df_var.columns = region_id
         df_info = pd.DataFrame(var_info)
-        #df_info = pd.DataFrame(var_info)
-        df = pd.concat([df_info,df_var]) #This is a dataframe with the avg mean per region
+        df_var["decade"] = df_info["decade"]
+        df_var["month"] = df_info["month"]
+        df_var["var"] = df_info["var"]
         tmp_name = ["decade","month","var"] + region_id
-        df.columns = tmp_name    
-        df.to_csv("table_"+var_name+"_df.csv",sep=",") #write out table
+        df = df_var[tmp_name] #reorder the columns of the dataframe in python    
+        df.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table
+        
         #Now reshape to have a 48*16 rows and 4 columns... the last should be ID region
+        nb_columns = len(list_rows) # + 1
+        tt=table.ravel()
+        df_val = pd.DataFrame(tt,columns=["value"])
+        df_val["time"] = (list(df["decade"]))*nb_rows
+        df_val["valueType"] = (list(df_var["var"]+"_"+df_var["month"]))*nb_rows
+        df_val["type"]= (list("c"))*df.value.count() #using the number of count in column value
         del table
 
-         
-        
-    ##Write out tmean
-    fname = "list_rows_mean_"+out_suffix+".dat"
-    fname = os.path.join(out_dir,fname)
-    save_data(list_rows_tmean,fname)
-    
-    nb_columns = len(list_rows_tmean) # + 1
-    nb_rows = len(list_rows_tmean[0])
 
-    
-    out_dir = "/ssi-dss-data/DSS_SSI_data/output_data_04122014"
-    list_rows_mean = load_data(os.path.join(out_dir,"list_rows_mean_04122014.dat"))
-    
-    #nb_columns=len(list_rows_mean)
-    #nb_columns=48
+    #### NOW REORGANIZE THE DATA INTO...
+    #Name,type,Time,valueType,Value    
+    #../county24.shp
+    driver = ogr.GetDriverByName("ESRI Shapefile")
+    ds =driver.Open(shp_fname,0)
+    lyr= ds.GetLayer(0)    
+    feature= lyr.GetFeature(0)
 
-    #nb_rows=16
-    #test = pdb.runcall(create_summary_table,list_rows_mean,nb_rows,nb_columns,out_dir,out_suffix)
-    test = create_summary_table(list_rows_mean,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
+    for feature in lyr:
+        print feature.GetField("COUNTY")
         
-    element_nb=0 #this is the column containing the mean for each entity (third column from postgis table)    
-    id_reg = create_summary_table(list_rows_mean,nb_rows,nb_columns=1,element_nb,out_dir,out_suffix)
-    region_id = ["%.0d" % number for number in id_reg]
-    "".join([["f_"]*len(region_id),region_id])    
-    #NOW FORMAT TALBE TO PUT IN POSTGIS!!!
-    var_info = create_var_names_from_files(l_f_tmean)
-    df_var = pd.DataFrame(np.transpose(test))
-    df_info = pd.DataFrame(var_info)
-    df = pd.concat(df_var,df_info) #This is a dataframe with the avg mean per region
-    tmp_name = ["decade","month","var"] + region_id
-    df.columns = tmp_name
-    
-    df.to_csv("table_mean_df.csv",sep=",") #write out table
-    #Now reshape to have a 48*16 rows and 4 columns... the last should be ID region
+        
+    #get counties names from shapefile,type=c,Time=year,valueType=tmin_1,tmax_1 etc., value
        
     #table.ravel(order="F") #flatten the array by moving down columns
     #extract_names from raster files...
