@@ -8,7 +8,7 @@
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 05/03/2014
+# Updated on: 05/12/2014
 
 # TODO:
 #  - functionalize to encapsulate high level procedural steps
@@ -85,7 +85,7 @@ def create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suf
     #This only takes the mean right now so could store other information
     #later!!!
     
-    table = numpy.ones((nb_rows,nb_columns))
+    table = np.ones((nb_rows,nb_columns))
     #add ID first...?
     for i in range(0,nb_columns):
         rows_output = list_rows[i]
@@ -94,7 +94,7 @@ def create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suf
             table[j,i] = tu[element_nb]
     fname = "table_"+out_suffix+".txt"       
     outfile1 = os.path.join(out_dir,fname)
-    numpy.savetxt(outfile1, table, fmt='%-7.6f')
+    np.savetxt(outfile1, table, fmt='%-7.6f')
     return table
     ## NEED TO ADD and ID Column!!!
     #May be add function to also store other values...        
@@ -445,11 +445,16 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     #region_id_col
     #SQL_str ="WITH temp_table AS (SELECT ST_Area((ST_Intersection(pixelgeom,geom)).geometry) AS intersectarea, pixelval, pixelarea AS origarea, cntycode FROM %s, %s WHERE ST_Intersects(pixelgeom,geom)) SELECT cntycode, SUM(pixelval*intersectarea/origarea) AS sums, SUM(pixelval*intersectarea)/SUM(intersectarea) AS means, COUNT(*) AS counts, MAX(pixelval) AS maxes, MIN(pixelval) AS mins, SUM(intersectarea)/1000000 AS area from temp_table group by cntycode;" % (poly_table,output_table_shp)
     #SQL_str ="CREATE TABLE zonal_stat_regions AS WITH temp_table AS (SELECT ST_Area((ST_Intersection(pixelgeom,geom)).geometry) AS intersectarea, pixelval, pixelarea AS origarea, cntycode FROM %s, %s WHERE ST_Intersects(pixelgeom,geom)) SELECT cntycode, SUM(pixelval*intersectarea/origarea) AS sums, SUM(pixelval*intersectarea)/SUM(intersectarea) AS means, COUNT(*) AS counts, MAX(pixelval) AS maxes, MIN(pixelval) AS mins, SUM(intersectarea)/1000000 AS area from temp_table group by cntycode;" % (poly_table,output_table_shp)
-    SQL_str ="CREATE TABLE zonal_stat_regions AS WITH temp_table AS (SELECT ST_Area((ST_Intersection(pixelgeom,geom)).geometry) AS intersectarea, pixelval, pixelarea AS origarea, %s FROM %s, %s WHERE ST_Intersects(pixelgeom,geom)) SELECT %s, SUM(pixelval*intersectarea/origarea) AS sums, SUM(pixelval*intersectarea)/SUM(intersectarea) AS means, COUNT(*) AS counts, MAX(pixelval) AS maxes, MIN(pixelval) AS mins, SUM(intersectarea)/1000000 AS area from temp_table group by %s;" % (region_id_col,poly_table,output_table_shp,region_id_col,region_id_col)
-
+    
+    zonal_stat_regions = "zonal_stat_regions_%s" % (str(i))
+    SQL_str = "DROP TABLE IF EXISTS %s;" % (zonal_stat_regions)
+    cur.execute(SQL_str)  
+    
+    SQL_str = "CREATE TABLE %s AS WITH temp_table AS (SELECT ST_Area((ST_Intersection(pixelgeom,geom)).geometry) AS intersectarea, pixelval, pixelarea AS origarea, %s FROM %s, %s WHERE ST_Intersects(pixelgeom,geom)) SELECT %s, SUM(pixelval*intersectarea/origarea) AS sums, SUM(pixelval*intersectarea)/SUM(intersectarea) AS means, COUNT(*) AS counts, MAX(pixelval) AS maxes, MIN(pixelval) AS mins, SUM(intersectarea)/1000000 AS area from temp_table group by %s;" % (zonal_stat_regions,region_id_col,poly_table,output_table_shp,region_id_col,region_id_col)
     #cmd_str ="WITH temp_table AS (SELECT ST_Area((ST_Intersection(pixelgeom,geom)).geometry) AS intersectarea, pixelval, pixelarea AS origarea, cntycode FROM mht_poly_use, counties WHERE ST_Intersects(pixelgeom,geom)) SELECT cntycode, SUM(pixelval*intersectarea/origarea) AS sums, SUM(pixelval*intersectarea)/SUM(intersectarea) AS means, COUNT(*) AS counts, MAX(pixelval) AS maxes, MIN(pixelval) AS mins, SUM(intersectarea)/1000000 AS area from temp_table group by cntycode;"
     cur.execute(SQL_str)       
-    SQL_str = "SELECT * FROM zonal_stat_regions"
+    
+    SQL_str = "SELECT * FROM %s" % (zonal_stat_regions)
     cur.execute(SQL_str)       
 
     rows_table = cur.fetchall()
@@ -486,10 +491,12 @@ def main():
     in_dir ="/ssi-dss-data/DSS_SSI_data"
     
     shp_fname = os.path.join(in_dir,"county24.shp")
-    region_name = "COUNTY" #name of the column containing the id for each entities...
+    #region_name = "COUNTY" #name of the column containing the id for each entities...
+    region_name = "CNTYCODE"
     #if region_name is None then create an ID? Add this option later on.
     region_type = "C"    #type for the region entity: C for county, T for town  
-    #valueType = temperature
+    valueType = ["tmin","tmax","tmean"] #temperature the list can be one only...
+    zonal_stat = "mean" #This is the statistic extracted from the region
 
     #polygon_input_shp_file = "metwp24.shp"
 
@@ -524,19 +531,15 @@ def main():
     
     fileglob_pattern = "*projected*ncar*.tif"
     pathglob = os.path.join(out_dir, fileglob_pattern)
-    l_f_temp = glob.glob(pathglob)
-    l_f_temp.sort(key=natural_keys) #mixed sorting of files
+    l_f_valueType = glob.glob(pathglob) #this contains the raster variable files that need to be summarized
+    l_f_valueType.sort(key=natural_keys) #mixed sorting of files
+       
 
     ########## START SCRIPT #############
-         
-    
+            
     ### FIRST ADD A COLUMN NAME, VALUE TYPE
     
     #get counties names from shapefile,type=c,Time=year,valueType=tmin_1,tmax_1 etc., value
-    #test = shp_to_data_frame(shp_fname)
-    ### NOW REORGANIZE THE DATA INTO...
-    #Name,type,Time,valueType,Value    
-    #../county24.shp
     
     layer_name = os.path.splitext(os.path.basename(shp_fname))[0]
     #os.system("ogrinfo "+shp_fname+" -sql \"SELECT COUNT(*) FROM "+layer_name+"\"")
@@ -547,35 +550,23 @@ def main():
     df_region = shp_to_data_frame(shp_fname)
     region_name_list = list(df_region[region_name])
     dict_region_name = {"Name":region_name_list}
-    #add_field_to_shp(in_fname,out_fname,dict_col=None):
+    #pdb.runcall(add_field_to_shp,shp_fname,out_fname1)
     out_fname1 = layer_name+"_out_"+out_suffix+".shp"
     add_field_to_shp(shp_fname,out_fname1,dict_region_name)
-    #df_region1 = shp_to_data_frame(out_fname1)
-    out_fname2 = layer_name+"_out_"+out_suffix+".shp"
-    add_field_to_shp(out_fname1,out_fname2,dict_region_type)
-    df_region2 = shp_to_data_frame(out_fname1)
-                 
+    df_region1 = shp_to_data_frame(out_fname1)
+    #out_fname2 = layer_name+"_out_"+out_suffix+".shp"
+    #add_field_to_shp(out_fname1,out_fname2,dict_region_type)
+    #df_region2 = shp_to_data_frame(out_fname1)
+                            
     ## Temp processing: 2020s,2030s,2040s,2050s for tmin, tmax and tmean (e.g. 4*3 directories with 12 files...)
 
-    #1.download...not automated...
-    #2.unzip asc or grd (arc grid)
-    #3.convert to tif (gdal_tranlslate)
-    #4.reproject and clip/subset for Maine region (clip using count24?)
-
-    #Get tmin files
-    l_f_tmin = filter(lambda x: re.search(r'tmin',x),l_f_temp)
-    #Get tmax files
-    l_f_tmax = filter(lambda x: re.search(r'tmax',x),l_f_temp)
-    #Get tmean files
-    l_f_tmean = filter(lambda x: re.search(r'tmean',x),l_f_temp)
-    
+    #Get raster files that were process previously, sort files by variable...
+    dict_rast_fname = {}
+    l_f_tmin = filter(lambda x: re.search(r'tmin',x),l_f_valueType)        
+    l_f_tmax = filter(lambda x: re.search(r'tmax',x),l_f_valueType)
+    l_f_tmean = filter(lambda x: re.search(r'tmean',x),l_f_valueType)        
     dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax, "tmean": l_f_tmean }
-    #debug
-    #test = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
-    
-    ### IMPORTANT BEFORE RUNNING THE QUERY WE NEED TO MODIFY THE SHP TO HAVE A ID FIELD, NAME FIELD AND TYPE FIELD
-    
-    
+        
     #This will be parallelized and looped through dict_rast_fname
     #can make one additional loop to reduce the repitition with tmin, tmax and tmean
 
@@ -594,7 +585,8 @@ def main():
     for i in range(0,len(rast_fname)):
     #for i in range(0,2):      
         out_suffix_s = "tmax_"+out_suffix
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
+        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
+        #rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,region_id_col,postgres_path_bin,db_name,user_name)
         list_rows_tmax.append(rows) #add object rows to list
         
     list_rows_tmean = [] # defined lenth right now
@@ -603,69 +595,108 @@ def main():
     for i in range(0,len(rast_fname)):
     #for i in range(0,2):     
         out_suffix_s = "tmean_"+out_suffix
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
+        #test = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
+        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
+        #rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
         list_rows_tmean.append(rows) #add object rows to list
         #Note the first columns from row contains: region ID
         #Other columns contain in hte order: region ID, sums, means, counts, maxes, mins, area
 
+    nb_columns = len(list_rows_tmin) # + 1
+    nb_rows = len(list_rows_tmin[0])
+     
     #Write out results by combining
     #test1 =load_data(fname)
     fname = "list_rows_min_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_rows_tmin,fname)
-    
-    nb_columns = len(list_rows_tmin) # + 1
-    nb_rows = len(list_rows_tmin[0])
-    #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
-    #table_tmin = create_summary_table(list_rows_tmin,nb_rows,nb_columns, out_dir,out_suffix)
-    #create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
-
     ##Write out tmax
     fname = "list_rows_max_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_rows_tmax,fname)
     
+    ##Write out tmax
+    fname = "list_rows_mean_"+out_suffix+".dat"
+    fname = os.path.join(out_dir,fname)
+    save_data(list_rows_tmean,fname)
+
     list_rows_tmin = load_data("list_rows_min_05032014.dat")
-    #list_rows_summary = [list_rows_tmin,list_rows_tmax,list_rows_tmean]
-    dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
-    dict_table = {}
+    list_rows_tmax = load_data("list_rows_max_05032014.dat")
+    list_rows_tmean = load_data("list_rows_mean_05032014.dat")
     
+    #list_rows_tmean = load_data("list_rows_mean_05032014.dat")
+    
+    #list_rows_summary = [list_rows_tmin,list_rows_tmax,list_rows_tmean]
+    #dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
+
+    dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax}#,"tmean":list_rows_tmean}
+    dict_table = {}
+    dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax} #, "tmean": l_f_tmean }
+
+    ### Create name for variable computed: This part can change significantly...
+    ##quite long...
+    
+    nb_region = nf
+    list_val_info =[]
+    for i in range(0,len(dict_rows_summary)):
+            ##MAKE THIS A SEPARATE PART IN WHICH valueType and Time are added!!
+        l_f = dict_rast_fname.values()[i]           
+        var_info = create_var_names_from_files(l_f)
+        df_info = pd.DataFrame(var_info)
+                
+        val_info = []
+        #name_col = []
+        for j in range(0,3):
+            list_name_col = []
+            for k in range(0,48):
+                l = []
+                l.append(df_info.ix[k,j])
+                name_col = l*nb_region
+                list_name_col.extend(name_col)
+            val_info.append(list_name_col)
+        list_val_info.append(val_info)
+       
+    list_name_var = []
+
+    for i in range(0,len(dict_rows_summary)):
+        name_var = []
+        val_info_tmp = list_val_info[i]
+        for k in range(0,len(val_info[0])):
+            test = val_info_tmp[0][k]+"_"+val_info_tmp[1][k]+"_"+val_info_tmp[2][k]
+            name_var.append(test)
+        list_name_var.append(name_var)
+        
+    ### end of name creation part
+    
+    ### Now add info to create table
+    
+    #zonal_stat = "mean" #This is set earlier...
+    zonal_stat_col = ["region","sum","mean","count","max","min"]
     for i in range(0,len(dict_rows_summary)):
         list_rows = dict_rows_summary.values()[i]
         var_name = dict_rows_summary.keys()[i]
         nb_columns = len(list_rows) # + 1
         nb_rows = len(list_rows[0])
-        element_nb = 2 #this is the column containing the mean for each entity (third column from postgis table)    
+        element_nb = zonal_stat_col.index(zonal_stat)  #find the position of zonal stat in hte list
+        #this is the column containing the mean for each entity (third column from postgis table)    
         #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
         table = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
         dict_table[var_name] = table
         #Now add id back...
-        nb_columns = 1
-        element_nb = 0 #this is the column containing the mean for each entity (third column from postgis table)    
+        nb_columns = 1 #this regturns only the first
+        element_nb = 0 #this is the column containing the region id    
         id_reg = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
         region_id = ["%.0d" % number for number in id_reg]
-        #"".join([["f_"]*len(region_id),region_id])    
-        #NOW FORMAT TALBE TO PUT IN POSTGIS!!!
-        l_f = dict_rast_fname.values()[i]       
-        var_info = create_var_names_from_files(l_f)
-        df_var = pd.DataFrame(np.transpose(table))
-        df_var.columns = region_id
-        df_info = pd.DataFrame(var_info)
-        df_var["decade"] = df_info["decade"]
-        df_var["month"] = df_info["month"]
-        df_var["var"] = df_info["var"]
-        tmp_name = ["decade","month","var"] + region_id
-        df = df_var[tmp_name] #reorder the columns of the dataframe in python    
-        df.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table
         
         #Now reshape to have a 48*16 rows and 4 columns... the last should be ID region
         nb_columns = len(list_rows) # + 1
         tt=table.ravel()
         df_val = pd.DataFrame(tt,columns=["value"])
-        df_val["time"] = (list(df["decade"]))*nb_rows
-        df_val["valueType"] = (list(df_var["var"]+"_"+df_var["month"]))*nb_rows
-        df_val["type"]= (list("c"))*df.value.count() #using the number of count in column value
-        del table
+        df_val["type"]= (list(region_type))* int(df_val.count()) #using the number of count in column value
+        df_val["Name"]= region_id*nb_columns #using the number of count in column value
+        df_val["valueType"] = list_name_var[i]
+        #Write out results
+        df_val.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table        
         
     #Write function to add back the tables in postgis and join them?   
 
@@ -677,4 +708,8 @@ if __name__ == '__main__':
 
 # -*- coding: utf-8 -*-
 #
+#        df_var["decade"] = df_info["decade"]
+#        df_var["month"] = df_info["month"]
+#        df_var["var"] = df_info["var"]
+
 ################   END OF SCRIPT  ###############
