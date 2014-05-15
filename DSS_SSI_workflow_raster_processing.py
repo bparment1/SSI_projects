@@ -157,48 +157,139 @@ def find_unique_val_raster(in_raster,band_nb=1):
     data_type = gdal.GetDataTypeName(band.DataType)
 
     #ar = numpy.zeros((nrow,ncol),dtype=data_type) #data type 'Byte' not understood
-    ar = np.zeros((nrow,ncol))
-
+    #ar = np.zeros((nrow,ncol))
 
     ar = np.array(band.ReadAsArray()) #reading everythin in memory!!! needs to be changed!!!
     values = np.unique(ar)
     
     return values
     
-#def breakout_raster(in_raster):
-#    ...
+## Creating boolean images from categorical rasters...such as NLCD   
+def breakout_raster_categories(in_file,out_dir,out_suffix_s,unique_val,file_format,NA_flag_val= -9999,boolean=True):
+        #This functions creates an image per unique value input categorical image.
+        #The output images can be boolean or have the unique values extracted.
+        #This can be used to reclassify images...!!
+        
+        ### Add loop here
+        l_out_file = []
+        for i in range(0,len(unique_val)):
+            val_in  = str(unique_val[i]) #value to be reclassified
+            if boolean==True:
+                val_out = str(1)
+            if boolean==False:
+                val_out = str(unique_val[i]) #value to assign
+            #val_out = str(unique_val[0]) #value to assign
+            #val = 11
+            NA_flag_val_str = str(NA_flag_val)
+            #in_file="nlcd2001_landcover_v2_2-13-11_clipped_projected_05152014.tif"
+            #out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+str(val)+file_format
+            out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+val_in+"_"+out_suffix_s+file_format
+            out_file = os.path.join(out_dir,out_file)
+
+            #Use this formatting!! this is more efficient than dealing with spaces...and can deal with 
+            #additional options later on...
+            #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]
+            cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+out_file,"--calc="+val_out+"*(A=="+val_in+")","--NoDataValue="+NA_flag_val_str]
+            out = subprocess.call(cmdStr)
+            l_out_file.append(out_file)
+        
+        return l_out_file
     
-    
-def change_resolution_raster(file_format,out_suffix,out_dir,res_val,in_file,out_file=None,resamp_opt="near"):
-    #
+def change_resolution_raster(in_file,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file=None,resamp_opt="near"):
+    #basic command: gdalwarp -tr 10 10 input.tif output.tif
     src_dataset = in_file
     #resamp_opt = "average" #this will compute the average for given pixel when changing resolution...
     #create output name if out_file=None
     if out_file==None:
         dst_dataset = "".join([os.path.splitext(os.path.basename(in_file))[0],
-                                       "_res_",res_val,
-                                       out_suffix,
+                                       "_res_",
+                                       out_suffix_s,
                                        file_format])   
         dst_dataset = os.path.join(out_dir,dst_dataset)                       
-    
-    cmd_str = "".join(["gdalwarp",
-                           " "+"-tr"+" "+res_xy+"'",
-                           " "+"-r" +" "+resamp_opt, 
-                           " "+src_dataset, 
-                           " "+dst_dataset])               
-    os.system(cmd_str)
-    
-    #print "Resampling"
-    #outFnLow = "%s/%s_LST_Day_1km_%s_%s_sinu_lowRes.tif" % (outDir,l,monthDict[int(m)],m) 
-    #inputStr = ['gdalwarp','-srcnodata',"0","-tr","10000","10000","-dstnodata","0","-wm","500","-overwrite",outFn,outFnLow]
-    #out = subprocess.call(inputStr)
+    if out_file!=None:
+        dst_dataset = out_file
+    #resamp_opt = "average"
+    NA_flag_val_str = str(NA_flag_val)
 
+    if ouput_type==None:
+            cmd_str = ["gdalwarp",
+              "-tr",str(res_xy_val[0]),str(res_xy_val[1]), 
+              "-r",resamp_opt, 
+              "-dstnodata", NA_flag_val_str,
+              "-overwrite",
+              src_dataset, 
+              dst_dataset]     
 
-    output_dataset = dst_dataset 
+    if ouput_type!=None:
+            cmd_str = ["gdalwarp",
+              "-tr",str(res_xy_val[0]),str(res_xy_val[1]), 
+              "-r",resamp_opt, 
+              "-ot",output_type,
+              "-dstnodata", NA_flag_val_str,
+              "-overwrite",
+              src_dataset, 
+              dst_dataset]
+            
+    print "Resampling :changing resolution"
     
-    return ouput_dataset             
+    out = subprocess.call(cmd_str)   
+    #os.system(cmd_str)
+    
+    out_file = dst_dataset 
+    
+    return ouput_file             
 
-#find number of each category in the new resolution...
+def raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= -9999,out_file=None):
+            
+    ### Add loop here
+    l_out_file = []
+    NA_flag_val_str = str(NA_flag_val)
+    
+    if out_file==None:
+        #create an output filename first:
+        file_combined = os.path.basename(l_rast[0]) #assuming this is the same file type? should change
+        #To avoid having a suffix attached to a name several times remove and replace by new suffix...
+        file_combined = file_combined.replace(out_suffix_s+file_format,"_calc_combined"+out_suffix_s+file_format)
+        file_combined = os.path.join(out_dir,file_combined)
+        in_file_1 = os.path.basename(l_rast[0])        
+    if out_file!=None:
+        #create an output filename first:
+        file_combined = os.path.join(out_dir,out_file) #assuming this is the same file type? should change
+        in_file_1 = os.path.basename(l_rast[0])        
+  
+    cmdStr = ['gdal_calc.py',
+                  '-A',in_file_1,
+                  "--outfile="+file_combined,
+                  "--calc=1*(A*0)",
+                  "--NoDataValue="+NA_flag_val_str]
+    out = subprocess.call(cmdStr)
+  
+    #start at zero but length is reduced by one!!!
+    for i in range(0,len(l_rast)-1):
+        #val_out = str(unique_val[0]) #value to assign
+        #val = 11
+        in_file_1 = file_combined
+        if i==0:
+            in_file_1 = l_rast[0]
+            
+        out_file = file_combined
+        in_file_2 = l_rast[i+1]
+        #out_file = os.path.join(out_dir,"tmp_combined"+ file_format)
+        #Use this formatting!! this is more efficient than dealing with spaces...and can deal with 
+        #additional options later on...
+        #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]
+        cmdStr = ['gdal_calc.py',
+                  '-A',in_file_1,
+                  '-B',in_file_2,
+                  "--outfile="+out_file,
+                  "--calc=1*(A"+operation+"B)",
+                  "--NoDataValue="+NA_flag_val_str]
+        out = subprocess.call(cmdStr)
+        file_combined = out_file
+        #l_out_file.append(out_file)
+    
+    return file_combined
+
 
 #######################################################################
 ######################### BEGIN SCRIPT  ###############################
@@ -228,9 +319,11 @@ def main():
     #http://spatialreference.org/ref/epsg/2037    
     CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
     CRS_aea = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
+    CRS_WGS84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 
     file_format = ".tif"
-    out_suffix = "05032014"
+    NA_flag_val = -9999
+    out_suffix = "05152014"
     w_extent_str = "-72 48 -65 41" #minx,maxy (upper left), maxx,miny (lower right)
     use_reg_extent = True
     os.chdir(in_dir)
@@ -246,7 +339,6 @@ def main():
     
     ########## START SCRIPT #############
     
-    CRS_WGS84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
     CRS_dst = CRS_WGS84 #this is the projection system of climate ccsm predictions
     
     #this can be a funciontion !!!! 
@@ -262,7 +354,7 @@ def main():
         w_extent = w_extent_str #this is in WGS84
         #end if
      
-    ##### PART II: PROCESSING CLIMATE PREDICION  ##########
+    ##### PART I: PROCESSING CLIMATE PREDICION  ##########
     
     ### Temp pocessing: 2020s,2030s,2040s,2050s for tmin, tmax and tmean (e.g. 4*3 directories with 12 files...)
 
@@ -272,6 +364,7 @@ def main():
     #4.reproject and clip/subset for Maine region (clip using count24?)
 
     ### EXTRACT ZIPPED FILES ###
+    
     fileglob = "*asc.zip"
     pathglob = os.path.join(in_dir, fileglob)
     l_f = glob.glob(pathglob)
@@ -305,7 +398,7 @@ def main():
                                   out_suffix_reg,out_dir,w_extent,clip_param=True,reproject_param=True)
 
  
-    ##### PART III: PROCESSING LAND COVER  ##########
+    ##### PART II: PROCESSING LAND COVER  ##########
         
     #TO avoid reproject the large layer (NLCD 30m) we find the extent of the region outile (e.g. ccounties)
     #in the CONUS region for clipping.
@@ -322,14 +415,15 @@ def main():
     elif use_reg_extent==False:
         w_extent = w_extent_str #this is in WGS84
         #end if
-
-    f_list <- list.files(path=in_dir,pattern="nlcd.*.img",full.names=T)
-    
+   
     fileglob = "*nlcd*.img"
     pathglob = os.path.join(in_dir, fileglob)
     f_list = glob.glob(pathglob)
     #    l_dir = map(lambda x: os.path.splitext(x)[0],l_f) #similar to laplly in R
-  
+    
+    outfile_list = []
+    outfile_breakout_list = []
+    
     for j in range(0,len(f_list)):
         CRS_src = CRS_aea #source projection syst
         CRS_dst = CRS_reg  #target projection syst
@@ -337,18 +431,73 @@ def main():
         infile_l_f = f_list
         #outfile = pdb.runcall(create_raster_region,j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,w_extent,clip_param=True)
         outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,w_extent,clip_param=True)
+        outfile_list.append(outfile)
+        ### NOW RECLASSIFY VALUES: i.e. BREAKOUT IDRISI like for unique values (land cover type)
+        unique_val = find_unique_val_raster(outfile) #This is inefficient! bad function!! rewrite!!
+        outfile_breakout_nlcd = breakout_raster_categories(outfile,out_dir,out_suffix,unique_val,file_format,NA_flag_val= -9999,boolean=True)
+        outfile_breakout_list.append(outfile_breakout_nlcd)
         
-            
-    ### NOW RECLASSIFY VALUES: i.e. BREAKOUT IDRISI like for unique values (land cover type)
-    unique_val = find_unique_val_raster(outfile)
-    
-    #gdal_calc.py -A crop.tif --outfile=level0100.tif --calc="100*(A>100)"     --NoDataValue=0
-    #gdal_calc.py -A crop.tif --outfile=level0100.tif --calc="100*(100<A<200)"     --NoDataValue=0 #reclass between 100 and 200 to 100 else 0
-    os.system("gdal_calc.py -A nlcd2001_landcover_v2_2-13-11_clipped_projected_05032014.tif --outfile=ncld_rec11.tif --calc=\"11*(A==11)\"     --NoDataValue=0")
-    #create function break out...
-    ## THEN use gdal wrap to calcuate the proportion of each land cover types at 100m
-    
+    #nlcd92mosaic_clipped_projected_05152014_rec_0_05152014    
+     outfile_breakout_list = []
+     outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd92mosaic*rec*.tif")))
+     outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd2001*rec*.tif")))
+     outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd2006*rec*.tif")))
+
+     ## Need to reclassify ?
+     #Combine all forest, urban, agri, wetland...?
+     #NLCD 2001,2006
+     20: urban , Developed (all 21,22,23,24)
+     40: forest, Forested upland (all 41,41,43)
+     80: agriculture, planted/cultivated (all,81,82)
+     90: wetland, (all,91,92,93...)
+
+     ## Clean this up to make it more general and shorter...
+     l_f_nlcd92_subset_cat = []
+     l_f_nlcd92_subset_cat.append(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[0]))        
+     l_f_nlcd92_subset_cat.append(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[0]))        
+     l_f_nlcd92_subset_cat.append(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[0]))        
+     l_f_nlcd92_subset_cat.append(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[0]))        
+
+     l_f_nlcd2001_subset_cat = []
+     l_f_nlcd2001_subset_cat.append(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[1]))        
+     l_f_nlcd2001_subset_cat.append(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[1]))        
+     l_f_nlcd2001_subset_cat.append(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[1]))        
+     l_f_nlcd2001_subset_cat.append(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[1]))        
+
+     l_f_nlcd2006_subset_cat = []
+     l_f_nlcd2006_subset_cat.append(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[2]))        
+     l_f_nlcd2006_subset_cat.append(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[2]))        
+     l_f_nlcd2006_subset_cat.append(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[2]))        
+     l_f_nlcd2006_subset_cat.append(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[2]))        
+        
+     l_f_nlcd_subset_cat = {"nlcd92": l_f_nlcd1992_subset_cat, "nlcd2001": l_f_nlcd2001_subset_cat, "nlcd2006": l_f_nlcd2006_subset_cat }
+
+     for i in range(0,len(l_f_nlcd_subset_cat)):
+         l_f_nlcd =l_f_nlcd_subset_cat[i]
+         
+         for j in range(0,len(l_f_nlcd)):
+             out_file = "test.tif" 
+             nlcd2006_dss_cat = raster_calc_operation_on_list(l_f_nlcd2006_subset_cat[0],out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= -9999,out_file)
+               
+        
+    #This specific to nlcd    
+    for j in range(0,len(outfile_breakout_list):
+        outfile_breakout_nlcd = outfile_breakout_list[j]
+        
+        for i in range(0,len( outfile_breakout_nlcd)):
+            nlcd_cat_file = outfile_breakout_nlcd[i]
+            res_xy_val = [30,30] #this is for visualization...
+            change_resolution_raster(nlcd_cat_file,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file=None,resamp_opt="near"):
+            res_xy_val = [300,300]
+            change_resolution_raster(nlcd_cat_file,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file=None,resamp_opt="near"):
+
+    #generate new resolution...
+    ## first at 3x30m for display (per land cover categories) use gdal wrap to calcuate the proportion of each land cover types at 90m
+    ## second at 30x30m for calculations of proportions in POSTGIS
+
     ## LAST step use  function to create summary by polygon for counties (proprotion of each land cover)
+    ### The last step takes outside this script
+    #add look up table for legend? It wll be important for the name.
     
     return None
     
