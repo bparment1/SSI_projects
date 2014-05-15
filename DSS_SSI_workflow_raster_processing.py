@@ -8,7 +8,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 04/14/2014
+# Updated on: 05/15/2014
 
 import os, glob
 import subprocess
@@ -156,7 +156,9 @@ def find_unique_val_raster(in_raster,band_nb=1):
     band = ds.GetRasterBand(band_nb)
     data_type = gdal.GetDataTypeName(band.DataType)
 
-    ar = numpy.zeros((nrow,ncol),dtype=data_type)
+    #ar = numpy.zeros((nrow,ncol),dtype=data_type) #data type 'Byte' not understood
+    ar = np.zeros((nrow,ncol))
+
 
     ar = np.array(band.ReadAsArray()) #reading everythin in memory!!! needs to be changed!!!
     values = np.unique(ar)
@@ -167,9 +169,10 @@ def find_unique_val_raster(in_raster,band_nb=1):
 #    ...
     
     
-def change_resolution_raster(in_file,out_file=None,file_format,out_suffix,out_dir,res_val,resamp_opt="near"):
+def change_resolution_raster(file_format,out_suffix,out_dir,res_val,in_file,out_file=None,resamp_opt="near"):
     #
     src_dataset = in_file
+    #resamp_opt = "average" #this will compute the average for given pixel when changing resolution...
     #create output name if out_file=None
     if out_file==None:
         dst_dataset = "".join([os.path.splitext(os.path.basename(in_file))[0],
@@ -211,13 +214,13 @@ def main():
  
     ########## READ AND PARSE PARAMETERS AND ARGUMENTS ######### 
 
-    in_dir = "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
+    #in_dir = "/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
+    in_dir ="/ssi-dss-data/DSS_SSI_data" #DSS SSI Maine
+
     #Input shape file used to define the zonal regions: could be town or counties in this context
-    shp_fname = os.path.join("/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
-                                           ,"county24.shp")
+    shp_fname = os.path.join(in_dir,"county24.shp")
     #input shp defining study area: can be the same as shp_fname or different                                       
-    shp_reg_outline = os.path.join("/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
-                                           ,"county24.shp")
+    shp_reg_outline = os.path.join(in_dir,"county24.shp")
 
     #EPSG: http://spatialreference.org/ref/epsg/26919/proj4/ -->  
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
@@ -227,7 +230,7 @@ def main():
     CRS_aea = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
 
     file_format = ".tif"
-    out_suffix = "04122014"
+    out_suffix = "05032014"
     w_extent_str = "-72 48 -65 41" #minx,maxy (upper left), maxx,miny (lower right)
     use_reg_extent = True
     os.chdir(in_dir)
@@ -239,6 +242,8 @@ def main():
     out_dir = os.path.join(in_dir,out_dir)
     create_dir_and_check_existence(out_dir)
             
+    os.chdir(out_dir)        #set working directory
+    
     ########## START SCRIPT #############
     
     CRS_WGS84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
@@ -259,7 +264,7 @@ def main():
      
     ##### PART II: PROCESSING CLIMATE PREDICION  ##########
     
-    ### Temp processing: 2020s,2030s,2040s,2050s for tmin, tmax and tmean (e.g. 4*3 directories with 12 files...)
+    ### Temp pocessing: 2020s,2030s,2040s,2050s for tmin, tmax and tmean (e.g. 4*3 directories with 12 files...)
 
     #1.download...not automated...
     #2.unzip asc or grd (arc grid)
@@ -270,7 +275,9 @@ def main():
     fileglob = "*asc.zip"
     pathglob = os.path.join(in_dir, fileglob)
     l_f = glob.glob(pathglob)
-    l_dir = map(lambda x: os.path.splitext(x)[0],l_f) #similar to laplly in R
+    l_f.sort() #order input by decade
+    l_dir = map(lambda x: os.path.splitext(x)[0],l_f) #remmove extension
+    l_dir = map(lambda x: os.path.join(out_dir,os.path.basename(x)),l_dir) #set the directory output
 
     #unzip(l_f[[1]],exdir=l_dir[[1]])
     for i in range(0,len(l_f)):
@@ -302,6 +309,7 @@ def main():
         
     #TO avoid reproject the large layer (NLCD 30m) we find the extent of the region outile (e.g. ccounties)
     #in the CONUS region for clipping.
+    #3x3 and 30x30
     
     out_suffix_dst = "_US_AEA"
     CRS_dst = CRS_aea
@@ -323,8 +331,8 @@ def main():
     #    l_dir = map(lambda x: os.path.splitext(x)[0],l_f) #similar to laplly in R
   
     for j in range(0,len(f_list)):
-        CRS_src = CRS_aea
-        CRS_dst = CRS_reg
+        CRS_src = CRS_aea #source projection syst
+        CRS_dst = CRS_reg  #target projection syst
         w_extent = w_extent_aea
         infile_l_f = f_list
         #outfile = pdb.runcall(create_raster_region,j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,w_extent,clip_param=True)
@@ -334,7 +342,10 @@ def main():
     ### NOW RECLASSIFY VALUES: i.e. BREAKOUT IDRISI like for unique values (land cover type)
     unique_val = find_unique_val_raster(outfile)
     
-    
+    #gdal_calc.py -A crop.tif --outfile=level0100.tif --calc="100*(A>100)"     --NoDataValue=0
+    #gdal_calc.py -A crop.tif --outfile=level0100.tif --calc="100*(100<A<200)"     --NoDataValue=0 #reclass between 100 and 200 to 100 else 0
+    os.system("gdal_calc.py -A nlcd2001_landcover_v2_2-13-11_clipped_projected_05032014.tif --outfile=ncld_rec11.tif --calc=\"11*(A==11)\"     --NoDataValue=0")
+    #create function break out...
     ## THEN use gdal wrap to calcuate the proportion of each land cover types at 100m
     
     ## LAST step use  function to create summary by polygon for counties (proprotion of each land cover)
