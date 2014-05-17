@@ -1,21 +1,23 @@
 #!/usr/bin/python
 #
 ######## SUMMARIZE BY ZONES (POLYGON) WITH RASTER FROM POSTGIS  ########
-#Script to process data for the DSS-SSI website.General purpose.
-#This script computes average means for a vector polygon layer
+#
+#Script to process data for the DSS-SSI website.
+#It is aimed at general purpose (i.e. script must strives for generality and automation)
+#This script computes average means for a vector polygon layer in postgis.
 #using a variable stored in raster format.
 #Data inserted in a Postgis database and tables are created. 
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 05/12/2014
-
+# Updated on: 05/17/2014
+# Project: DSS-SSI
+#
 # TODO:
-#  - functionalize to encapsulate high level procedural steps
-### Need to add more functions by breaking out code!!...
-## add function for use in multiprocessing pool
-
-######## LOAD LIBRARY USED IN THE SCRIPT ###########
+# - Need to add more functions by breaking out code!!...
+# - improve performance...by using in multiprocessing pool
+#
+######## LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
 
 import os, glob, sys   #System tools: OS, files, env var etc.
 import subprocess      #thread and processes
@@ -37,6 +39,7 @@ import pdb                   #for debugging
 import pandas as pd
 
 ################ NOW FUNCTIONS  ###################
+
 #------------------
 # Functions used in the script 
 #------------------
@@ -320,7 +323,7 @@ def get_vct_FieldName(shp_fname):
     nf = lyr.GetFeatureCount() #number of features
     return list_names, nf
 
-def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,region_id_col,postgres_path_bin,db_name,user_name):
+def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,region_id_col,postgres_path_bin,db_name,user_name,NA_flag_val,tile_size=1):
 #def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name):
     
     #This function calculate summary statistic i.e. average per region in the
@@ -360,6 +363,7 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     #postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"
     #postgres_path_bin = ""
     
+    NA_flag_val_str = str(NA_flag_val)
     polygon_input_shp_table = "counties"    #can be any name
                                             # polygons can be any regions
     #polygon_input_shp_table = "towns"
@@ -393,7 +397,8 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     conn.set_isolation_level(0) #change isolation level,so that we are not in transaction mode
     cur = conn.cursor()
     #end of function
-    
+    #conn.set_isolation_level(0) #change isolation level,so that we are not in transaction mode
+
     ## IMPORT SHAPEFILE IN TABLE
     SQL_str = "DROP TABLE IF EXISTS %s;" % (output_table_shp)
     cur.execute(SQL_str) #Should collect all commands executed in a file (for later)
@@ -415,11 +420,26 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     SQL_str = "DROP TABLE IF EXISTS %s;" % (output_table_rast)
     cur.execute(SQL_str) #Should collect all commands executed in a file (for later)
     
+#    cmd_str = "".join([postgres_path_bin,
+#                      "raster2pgsql",
+#                      " ","-s ",SRS_EPSG,             #projection system add as input
+#                      " ","-I -t 1x1",               #additional options
+#                      " ",rast_input,
+#                     " ",output_table_rast,
+#                      " ","| psql",
+#                      " ","-U ",user_name,
+#                      " ","-d ",db_name,
+#                      " >rast.log"])
+#    os.system(cmd_str)
+    
+    rast_tiling = str(tile_size)+"x"+str(tile_size)
     cmd_str = "".join([postgres_path_bin,
-                      "raster2pgsql",
+                      "raster2pgsql",                 #We can potentially use ...
                       " ","-s ",SRS_EPSG,             #projection system add as input
-                      " ","-I -t 1x1",               #additional options
-                      " ",rast_input,
+                      " ","-I ",                      #build spatial index, overview factor
+                      " ","-N ", NA_flag_val_str,     #Nod data val to use on bands without a NODATA value...
+                      " ","-t ",rast_tiling,          #store raster in nxn tile table
+                      " ",rast_input,                 #input raster name
                       " ",output_table_rast,
                       " ","| psql",
                       " ","-U ",user_name,
@@ -434,6 +454,7 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     cur.execute(SQL_str) #Should collect all commands executed in a file (for later)
     
     #Note that rast is column that contains values of tiles imported from the raster
+    #http://postgis.net/docs/RT_ST_SummaryStats.html
     SQL_str = "SELECT ST_ConvexHull(rast) AS pixelgeom, ST_Area(ST_ConvexHull(rast)) AS pixelarea,(ST_SummaryStats(rast)).sum AS pixelval INTO %s FROM %s WHERE (ST_SummaryStats(rast)).sum IS NOT NULL;" % (poly_table,output_table_rast)
     cur.execute(SQL_str) 
     #NOW create an index
@@ -491,8 +512,8 @@ def main():
     in_dir ="/ssi-dss-data/DSS_SSI_data"
     
     shp_fname = os.path.join(in_dir,"county24.shp")
-    #region_name = "COUNTY" #name of the column containing the id for each entities...
-    region_name = "CNTYCODE"
+    region_name = "COUNTY" #name of the column containing the id for each entities...
+    #region_name = "CNTYCODE"
     #if region_name is None then create an ID? Add this option later on.
     region_type = "C"    #type for the region entity: C for county, T for town  
     valueType = ["tmin","tmax","tmean"] #temperature the list can be one only...
@@ -502,7 +523,7 @@ def main():
 
     #EPSG: http://spatialreference.org/ref/epsg/26919/proj4/ -->  
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
-    out_suffix = "05032014"
+    out_suffix = "05152014"
     os.chdir(in_dir) #set current dir
     #os.getcwd() #check current dir
     out_dir = in_dir
@@ -521,18 +542,29 @@ def main():
     SRS_EPSG = "2037"             
     #Database information       
     db_name ="test_ssi_db3"
+    db_name ="test_ssi_db2"
+    
     user_name = "benoit"
     #user_name = "parmentier" 
     postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"  #on SSI Maine
+    tile_size = 10  #this set the tile size for the raster postgis table
+    NA_flag_val = -9999
     #postgres_path_bin = ""  #on ATLAS NCEAS
     
     #polygon_input_shp_table = "counties"    
     #polygon_input_shp_table = "towns"
     
+    ## Get input raster lists containg information to be summarized
+    #Temperature info:
     fileglob_pattern = "*projected*ncar*.tif"
     pathglob = os.path.join(out_dir, fileglob_pattern)
     l_f_valueType = glob.glob(pathglob) #this contains the raster variable files that need to be summarized
     l_f_valueType.sort(key=natural_keys) #mixed sorting of files
+    #NLCD land cover info:
+    fileglob_pattern = "nlcd_*_*_proportion_900_900_*.tif"
+    pathglob = os.path.join(out_dir, fileglob_pattern)
+    l_f_valueType_NLCD = glob.glob(pathglob) #this contains the raster variable files that need to be summarized
+    l_f_valueType_NLCD.sort(key=natural_keys) #mixed sorting of files
        
 
     ########## START SCRIPT #############
@@ -567,17 +599,29 @@ def main():
     l_f_tmean = filter(lambda x: re.search(r'tmean',x),l_f_valueType)        
     dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax, "tmean": l_f_tmean }
         
-    #This will be parallelized and looped through dict_rast_fname
+    #This will be parallelized and looped through dict_rast_fname 
     #can make one additional loop to reduce the repitition with tmin, tmax and tmean
+    
+    list_rows_NLCD = [] # defined lenth right now    
+    rast_fname = l_f_valueType_NLCD #copy by refernce!!
 
-    list_rows_tmin = [] # defined lenth right now    
+    for i in range(1,len(rast_fname)):
+    #for i in range(0,2):    
+        out_suffix_s = "NLCD_"+out_suffix
+        #tile_size = 1
+        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,tile_size)
+        list_rows_NLCD.append(rows) #add object rows to list
+
+    list_rows_tmin = [] # defined lenth right now  f  
     rast_fname = l_f_tmin #copy by refernce!!
 
     for i in range(0,len(rast_fname)):
     #for i in range(0,2):    
         out_suffix_s = "tmin_"+out_suffix
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
+        #tile_size = 1
+        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,tile_size)
         list_rows_tmin.append(rows) #add object rows to list
+        #test = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
 
     list_rows_tmax = [] # defined lenth right now
     rast_fname = l_f_tmax #copy by refernce!!
@@ -620,23 +664,25 @@ def main():
     fname = os.path.join(out_dir,fname)
     save_data(list_rows_tmean,fname)
 
-    list_rows_tmin = load_data("list_rows_min_05032014.dat")
-    list_rows_tmax = load_data("list_rows_max_05032014.dat")
-    list_rows_tmean = load_data("list_rows_mean_05032014.dat")
-    
+    #list_rows_tmin = load_data("list_rows_min_05032014.dat")
+    #list_rows_tmax = load_data("list_rows_max_05032014.dat")
     #list_rows_tmean = load_data("list_rows_mean_05032014.dat")
     
+    #list_rows_tmean = load_data("list_rows_mean_"+out_suffix)
+    
+    #li    dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax, "tmean": l_f_tmean }
     #list_rows_summary = [list_rows_tmin,list_rows_tmax,list_rows_tmean]
     #dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
 
-    dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax}#,"tmean":list_rows_tmean}
+    dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
     dict_table = {}
-    dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax} #, "tmean": l_f_tmean }
 
-    ### Create name for variable computed: This part can change significantly...
+    ### Create name for variable computed: This part can change significantly...since it is specific to
+    ### ncar filename.
     ##quite long...
     
-    nb_region = nf
+    #There are 16*48 (48 variables and 16 region)...the final data.frame has 16*48 rows...ß
+    nb_region = len(df_region1[region_name].unique()) #number of unique regions...16 for counties
     list_val_info =[]
     for i in range(0,len(dict_rows_summary)):
             ##MAKE THIS A SEPARATE PART IN WHICH valueType and Time are added!!
@@ -646,10 +692,10 @@ def main():
                 
         val_info = []
         #name_col = []
-        for j in range(0,3):
+        for j in range(0,3): #number of col in df_info
             list_name_col = []
-            for k in range(0,48):
-                l = []
+            for k in range(0,df_info.count()[1]): #number of rows in df_info
+                l = []  
                 l.append(df_info.ix[k,j])
                 name_col = l*nb_region
                 list_name_col.extend(name_col)
@@ -657,7 +703,7 @@ def main():
         list_val_info.append(val_info)
        
     list_name_var = []
-
+ 
     for i in range(0,len(dict_rows_summary)):
         name_var = []
         val_info_tmp = list_val_info[i]
@@ -666,12 +712,12 @@ def main():
             name_var.append(test)
         list_name_var.append(name_var)
         
-    ### end of name creation part
+    ### end of name creation part for ncar temp predictions: might be changed for different input
     
     ### Now add info to create table
     
     #zonal_stat = "mean" #This is set earlier...
-    zonal_stat_col = ["region","sum","mean","count","max","min"]
+    zonal_stat_col = ["region","sum","mean","count","max","min"] #should be set earlier from teh output or rows?
     for i in range(0,len(dict_rows_summary)):
         list_rows = dict_rows_summary.values()[i]
         var_name = dict_rows_summary.keys()[i]
@@ -684,7 +730,7 @@ def main():
         dict_table[var_name] = table
         #Now add id back...
         nb_columns = 1 #this regturns only the first
-        element_nb = 0 #this is the column containing the region id    
+        element_nb = 0 #this is the column containing the region id set in the first part of the script
         id_reg = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
         region_id = ["%.0d" % number for number in id_reg]
         
@@ -695,6 +741,7 @@ def main():
         df_val["type"]= (list(region_type))* int(df_val.count()) #using the number of count in column value
         df_val["Name"]= region_id*nb_columns #using the number of count in column value
         df_val["valueType"] = list_name_var[i]
+        df_val.ix[1:10,] #print first 10 rows with columns name for quick check
         #Write out results
         df_val.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table        
         
