@@ -1,15 +1,23 @@
 #!/usr/bin/python
 #
-#Script to process data for the DSS-SSI website.
-#Data are first clipped to match the Maine study area.
+######## PROCESS RASTER IMAGES FOR STUDY AREA  ########
 #
-# TODO:
-#  - functionalize to encapsulate high level procedural steps
+#Script to process data for the Decision Support System, DSS-SSI website.
+#It is aimed at general purpose (i.e. script must strives for generality and automation)
+#Data are first clipped and reprojected to match the Maine study area.
+#NLCD data are reclassified into general classes (forest,agriculture,urban and wetland)
+#NLCD general classes are resampled at higher resolution and proportion of land cover  calculated.
+#
+## TODO:
+#  - Add paralelization...
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 05/15/2014
-
+# Updated on: 05/17/2014
+# Project: DSS-SSI
+#
+####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
+#    
 import os, glob
 import subprocess
 import re, zipfile
@@ -25,9 +33,11 @@ from osgeo import gdal_array
 from osgeo import gdalconst
 import numpy as np
 
-#------------------
+################ NOW FUNCTIONS  ###################
+
+##------------------
 # Functions used in the script 
-#------------------
+##------------------
 
 def create_dir_and_check_existence(path):
     #Create a new directory
@@ -107,7 +117,7 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
                            " "+src_dataset, 
                            " "+dst_dataset])                     
         os.system(cmd_str)
-        
+        #-a_nodata value: no data value....
         ### END OF FUNCTION
         clipped_dataset = dst_dataset
         #Also add option to reproject to specificied image of specific resolution
@@ -211,7 +221,7 @@ def change_resolution_raster(in_file,res_xy_val,out_suffix_s,out_dir,file_format
     #resamp_opt = "average"
     NA_flag_val_str = str(NA_flag_val)
 
-    if ouput_type==None:
+    if output_type==None:
             cmd_str = ["gdalwarp",
               "-tr",str(res_xy_val[0]),str(res_xy_val[1]), 
               "-r",resamp_opt, 
@@ -220,7 +230,7 @@ def change_resolution_raster(in_file,res_xy_val,out_suffix_s,out_dir,file_format
               src_dataset, 
               dst_dataset]     
 
-    if ouput_type!=None:
+    if output_type!=None:
             cmd_str = ["gdalwarp",
               "-tr",str(res_xy_val[0]),str(res_xy_val[1]), 
               "-r",resamp_opt, 
@@ -237,7 +247,7 @@ def change_resolution_raster(in_file,res_xy_val,out_suffix_s,out_dir,file_format
     
     out_file = dst_dataset 
     
-    return ouput_file             
+    return out_file             
 
 def raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= -9999,out_file=None):
             
@@ -438,82 +448,81 @@ def main():
         outfile_breakout_list.append(outfile_breakout_nlcd)
         
     #nlcd92mosaic_clipped_projected_05152014_rec_0_05152014    
-     outfile_breakout_list = []
-     outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd92mosaic*rec*.tif")))
-     outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd2001*rec*.tif")))
-     outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd2006*rec*.tif")))
+    #outfile_breakout_list = []
+    #outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd92mosaic*rec*.tif")))
+    #outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd2001*rec*.tif")))
+    #outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd2006*rec*.tif")))
 
-     ## Need to reclassify ?
-     #Combine all forest, urban, agri, wetland...?
-     #NLCD 2001,2006
-     20: urban , Developed (all 21,22,23,24)
-     40: forest, Forested upland (all 41,41,43)
-     80: agriculture, planted/cultivated (all,81,82)
-     90: wetland, (all,91,92,93...)
+    ## Need to reclassify ?
+    #Combine all forest, urban, agri, wetland...?
+    #NLCD 1992, 2001,2006
+    #20: urban , Developed (all 21,22,23,24)
+    #40: forest, Forested upland (all 41,41,43)
+    #80: agriculture, planted/cultivated (all,81,82)
+    #90: wetland, (all,91,92,93...)
 
-     ## Clean this up to make it more general and shorter...
-     l_f_nlcd92_subset_cat = []
-     l_f_nlcd92_subset_cat.append(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[0]))        
-     l_f_nlcd92_subset_cat.append(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[0]))        
-     l_f_nlcd92_subset_cat.append(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[0]))        
-     l_f_nlcd92_subset_cat.append(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[0]))        
-
-     l_f_nlcd2001_subset_cat = []
-     l_f_nlcd2001_subset_cat.append(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[1]))        
-     l_f_nlcd2001_subset_cat.append(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[1]))        
-     l_f_nlcd2001_subset_cat.append(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[1]))        
-     l_f_nlcd2001_subset_cat.append(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[1]))        
-
-     l_f_nlcd2006_subset_cat = []
-     l_f_nlcd2006_subset_cat.append(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[2]))        
-     l_f_nlcd2006_subset_cat.append(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[2]))        
-     l_f_nlcd2006_subset_cat.append(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[2]))        
-     l_f_nlcd2006_subset_cat.append(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[2]))        
+    ## Clean this up to make it more general and shorter...
         
-     l_f_nlcd_subset_cat = {"nlcd92": l_f_nlcd1992_subset_cat, "nlcd2001": l_f_nlcd2001_subset_cat, "nlcd2006": l_f_nlcd2006_subset_cat }
+    l_f_nlcd1992_subset_cat_dict = {
+    "nlcd_1992_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[0])),
+    "nlcd_1992_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[0])),
+    "nlcd_1992_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[0])),
+    "nlcd_1992_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[0]))}
+        
+    l_f_nlcd2001_subset_cat_dict = {
+    "nlcd_2001_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[1])),
+    "nlcd_2001_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[1])),
+    "nlcd_2001_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[1])),
+    "nlcd_2001_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[1]))}
 
-     for i in range(0,len(l_f_nlcd_subset_cat)):
-         l_f_nlcd =l_f_nlcd_subset_cat[i]
+    l_f_nlcd2006_subset_cat_dict = {
+    "nlcd_2006_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[2])),
+    "nlcd_2006_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[2])),
+    "nlcd_2006_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[2])),
+    "nlcd_2006_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[2]))}
+
+    l_f_nlcd_subset_cat_dict = {"nlcd92": l_f_nlcd1992_subset_cat_dict, "nlcd2001": l_f_nlcd2001_subset_cat_dict, "nlcd2006": l_f_nlcd2006_subset_cat_dict }
+    nlcd_dss_cat = {}
+    ##Combine categories in general cat...     
+    for i in range(0,len(l_f_nlcd_subset_cat_dict)):
+        l_f_nlcd = {}
+        l_f_nlcd.update(l_f_nlcd_subset_cat_dict.values()[i])
          
-         for j in range(0,len(l_f_nlcd)):
-             out_file = "test.tif" 
-             nlcd2006_dss_cat = raster_calc_operation_on_list(l_f_nlcd2006_subset_cat[0],out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= -9999,out_file)
-               
-        
-    #This specific to nlcd    
-    for j in range(0,len(outfile_breakout_list):
-        outfile_breakout_nlcd = outfile_breakout_list[j]
-        
-        for i in range(0,len( outfile_breakout_nlcd)):
-            nlcd_cat_file = outfile_breakout_nlcd[i]
-            res_xy_val = [30,30] #this is for visualization...
-            change_resolution_raster(nlcd_cat_file,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file=None,resamp_opt="near"):
-            res_xy_val = [300,300]
-            change_resolution_raster(nlcd_cat_file,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file=None,resamp_opt="near"):
-
+        for j in range(0,len(l_f_nlcd)):
+            var_name = l_f_nlcd.keys()[j]
+            list_var_rast = l_f_nlcd.values()[j]
+            out_file = var_name+"_" + out_suffix+file_format
+            operation = "+"
+            nlcd_dss_rast = raster_calc_operation_on_list(list_var_rast,out_dir,out_suffix,file_format,operation,NA_flag_val,out_file)
+            #def raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= -9999,out_file=Non
+            #nlcd_dss_cat.update(nlcd_dss_rast) 
+            #Add to dictionary
+            nlcd_dss_cat[var_name] = nlcd_dss_rast
+             
+    ## Now change resolution for processing and display for DSS
     #generate new resolution...
     ## first at 3x30m for display (per land cover categories) use gdal wrap to calcuate the proportion of each land cover types at 90m
     ## second at 30x30m for calculations of proportions in POSTGIS
-
-    ## LAST step use  function to create summary by polygon for counties (proprotion of each land cover)
-    ### The last step takes outside this script
-    #add look up table for legend? It wll be important for the name.
-    
+    lf_nlcd_prop900 = []
+    for i in range(0,len(nlcd_dss_cat)):
+        var_name = nlcd_dss_cat.keys()[i]
+        infile = nlcd_dss_cat.values()[i]
+        res_xy_val = [90,90] #this is for visualization...
+        out_file = var_name+"_proportion_"+str(res_xy_val[0])+"_"+str(res_xy_val[1]) + "_" + out_suffix+file_format 
+        resamp_opt = "average"
+        output_type = "Float32"
+       #[-ot {Byte/Int16/UInt16/UInt32/Int32/Float32/Float64/
+        change_resolution_raster(infile,res_xy_val,out_suffix,out_dir,file_format,output_type,NA_flag_val,out_file,resamp_opt)
+        res_xy_val = [900,900] #this is for computation with postgis
+        out_file = var_name+"_proportion_"+str(res_xy_val[0])+"_"+str(res_xy_val[1]) + "_" + out_suffix+file_format 
+        change_resolution_raster(infile,res_xy_val,out_suffix,out_dir,file_format,output_type,NA_flag_val,out_file,resamp_opt)
+        #change_resolution_raster(infile,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file,resamp_opt="average"):
+        lf_nlcd_prop900.append(out_file)
+            
     return None
     
 #Need to add this to run
 if __name__ == '__main__':
     main()
 
-
-#ogrinfo clipping_mask.shp -so -al | grep Extent
-
-# which gives the extent as xMin,yMin, xMax, yMax:
-#Extent: (268596, 5362330) - (278396, 5376592)
-# which is (xMin,yMin) - (xMax,yMax)
-#Then copy and paste that text to create your gdal_translate clipping command:
-
-# -projwin's ulx uly lrx lry is equivalent to xMin, yMax, xMax, yMin so just switch the Y coordinates
-# For the above Extent that would turn into:
-
-#gdal_translate -projwin 268596 5376592 278396 5362330 src_dataset dst_dataset
+################# End of script ################# 
