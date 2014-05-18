@@ -13,7 +13,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 05/17/2014
+# Updated on: 05/18/2014
 # Project: DSS-SSI
 #
 ####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
@@ -83,7 +83,7 @@ def calculate_region_extent(reg_outline,out_suffix_dst,CRS_dst,out_dir):
     return(w_extent,dst_dataset)
 
 def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,
-                         w_extent,clip_param=True,reproject_param=True):
+                         w_extent,NA_flag_val,clip_param=True,reproject_param=True):
     
     #### Function parameters
     #in_dir: input directory
@@ -100,7 +100,7 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
     in_file= infile_l_f[j]
     #CRS_src = CRS_aea
     #CRS_dst = CRS_reg
-    
+    NA_flag_val_str = str(NA_flag_val)
     ## FIRST CLIP for every file in hte list crop
     if clip_param == True:
         
@@ -114,6 +114,7 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
         cmd_str = "".join(["gdal_translate",
                            " "+"-projwin"+" "+w_extent,
                            " "+"-a_srs"+" '"+CRS_src+"'",
+                           " -a_nodata "+NA_flag_val_str,
                            " "+src_dataset, 
                            " "+dst_dataset])                     
         os.system(cmd_str)
@@ -144,10 +145,11 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
     
         cmd_str = "".join(["gdalwarp",
                            " "+"-t_srs"+" '"+CRS_reg+"'",
+                           " -dstnodata "+NA_flag_val_str,
                            " "+src_dataset, 
                            " "+dst_dataset])               
         os.system(cmd_str)
-    
+    #can also add srcnodata
     output_dataset = dst_dataset                
     
     return(output_dataset)
@@ -405,7 +407,7 @@ def main():
             #outfile = pdb.runcall(create_raster_region,j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,
             #                      out_suffix_reg,out_dir,w_extent,clip_param=True,reproject_param=True)
             outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,
-                                  out_suffix_reg,out_dir,w_extent,clip_param=True,reproject_param=True)
+                                  out_suffix_reg,out_dir,w_extent,NA_flag_val,clip_param=True,reproject_param=True)
 
  
     ##### PART II: PROCESSING LAND COVER  ##########
