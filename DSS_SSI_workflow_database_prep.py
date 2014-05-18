@@ -746,6 +746,8 @@ def main():
         df_val.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table        
         
     #Write function to add back the tables in postgis and join them?   
+    list_rows_NLCD
+
 
     return None
     
