@@ -13,7 +13,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 05/18/2014
+# Updated on: 05/27/2014
 # Project: DSS-SSI
 #
 ####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
@@ -83,7 +83,7 @@ def calculate_region_extent(reg_outline,out_suffix_dst,CRS_dst,out_dir):
     return(w_extent,dst_dataset)
 
 def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,
-                         w_extent,NA_flag_val,clip_param=True,reproject_param=True):
+                         w_extent,NA_flag_val,output_type=None,clip_param=True,reproject_param=True):
     
     #### Function parameters
     #in_dir: input directory
@@ -94,6 +94,8 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
     #CRS_src: projection for the input
     #file_format: output file format...(tiff as default)
     #w_extent: should be in coordinate system of src!!
+    #NA_flag_val: value for the Nodata pixels
+    #output_type: user defined such as "Float32", if None, the same datatype is kept
     
     ####### START SCRIPT/FUNCTION  #########
     
@@ -110,13 +112,23 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
         #build output name and remove the input path
         dst_dataset = os.path.splitext(os.path.basename(src_dataset))[0]+"_clipped_"+out_suffix+file_format
         dst_dataset = os.path.join(out_dir,dst_dataset)
-                            
-        cmd_str = "".join(["gdal_translate",
-                           " "+"-projwin"+" "+w_extent,
-                           " "+"-a_srs"+" '"+CRS_src+"'",
-                           " -a_nodata "+NA_flag_val_str,
-                           " "+src_dataset, 
-                           " "+dst_dataset])                     
+        
+        if output_type==None:
+            cmd_str = "".join(["gdal_translate",
+                               " "+"-projwin"+" "+w_extent,
+                               " "+"-a_srs"+" '"+CRS_src+"'",
+                               " -a_nodata "+NA_flag_val_str,
+                               " "+src_dataset, 
+                               " "+dst_dataset])            
+        if output_type!=None:
+            cmd_str = "".join(["gdal_translate",
+                               " -ot "+output_type,
+                               " "+"-projwin"+" "+w_extent,
+                               " "+"-a_srs"+" '"+CRS_src+"'",
+                               " -a_nodata "+NA_flag_val_str,
+                               " "+src_dataset, 
+                               " "+dst_dataset])                     
+
         os.system(cmd_str)
         #-a_nodata value: no data value....
         ### END OF FUNCTION
@@ -142,12 +154,27 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
                                    out_suffix,
                                    file_format])   
             dst_dataset = os.path.join(out_dir,dst_dataset)                       
-    
-        cmd_str = "".join(["gdalwarp",
-                           " "+"-t_srs"+" '"+CRS_reg+"'",
-                           " -dstnodata "+NA_flag_val_str,
-                           " "+src_dataset, 
-                           " "+dst_dataset])               
+        
+        if output_type==None:
+            cmd_str = "".join(["gdalwarp",
+                               " "+"-t_srs"+" '"+CRS_reg+"'",
+                               " -srcnodata "+NA_flag_val_str,
+                               " -dstnodata "+NA_flag_val_str,
+                               " -overwrite",
+                               " "+src_dataset, 
+                               " "+dst_dataset])             
+
+        if output_type!=None:
+            cmd_str = "".join(["gdalwarp",
+                               " "+"-t_srs"+" '"+CRS_reg+"'",
+                               " -ot "+output_type,
+                               " -srcnodata "+NA_flag_val_str,
+                               " -dstnodata "+NA_flag_val_str,
+                               " -overwrite",
+                               " "+src_dataset, 
+                               " "+dst_dataset])             
+                           
+                           
         os.system(cmd_str)
     #can also add srcnodata
     output_dataset = dst_dataset                
@@ -335,6 +362,7 @@ def main():
 
     file_format = ".tif"
     NA_flag_val = -9999
+    output_type = "Float32"
     out_suffix = "05152014"
     w_extent_str = "-72 48 -65 41" #minx,maxy (upper left), maxx,miny (lower right)
     use_reg_extent = True
@@ -385,6 +413,7 @@ def main():
     l_dir = map(lambda x: os.path.join(out_dir,os.path.basename(x)),l_dir) #set the directory output
 
     #unzip(l_f[[1]],exdir=l_dir[[1]])
+    #This part takes a lot of time!!!
     for i in range(0,len(l_f)):
         with zipfile.ZipFile(l_f[i], "r") as z:
             z.extractall(l_dir[i])
@@ -407,7 +436,7 @@ def main():
             #outfile = pdb.runcall(create_raster_region,j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,
             #                      out_suffix_reg,out_dir,w_extent,clip_param=True,reproject_param=True)
             outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,
-                                  out_suffix_reg,out_dir,w_extent,NA_flag_val,clip_param=True,reproject_param=True)
+                                  out_suffix_reg,out_dir,w_extent,NA_flag_val,output_type,clip_param=True,reproject_param=True)
 
  
     ##### PART II: PROCESSING LAND COVER  ##########
