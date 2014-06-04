@@ -10,10 +10,16 @@
 #
 ## TODO:
 #  - Add paralelization...
+#  - get statistics for layers in tif
+#  - create and apply mask for ME to all outputs
+#  - solve issues with nlcd_2001_urban_proportion_900_900_05152014.tif and 90m
+#  - find out about palette storage
+#  - change projection to 26919?
+#  - divide by 10 the temp...add option in region function??
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 05/27/2014
+# Updated on: 06/04/2014
 # Project: DSS-SSI
 #
 ####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
@@ -32,6 +38,10 @@ from osgeo import osr
 from osgeo import gdal_array
 from osgeo import gdalconst
 import numpy as np
+from multiprocessing import Process, Manager, Pool #parallel processing
+import pdb                   #for debugging
+import pandas as pd          #DataFrame object and other R like features for data munging
+
 
 ################ NOW FUNCTIONS  ###################
 
@@ -233,6 +243,34 @@ def breakout_raster_categories(in_file,out_dir,out_suffix_s,unique_val,file_form
             l_out_file.append(out_file)
         
         return l_out_file
+
+## Creating boolean images from categorical rasters...such as NLCD   
+def reclass_raster_categories(in_file,out_dir,out_suffix_s,unique_val,out_val,file_format,NA_flag_val= -9999):
+        #This functions creates an image per unique value input categorical image.
+        #The output images can be boolean or have the unique values extracted.
+        #This can be used to reclassify images...!!
+        
+        ### Add loop here
+        l_out_file = []
+        for i in range(0,len(unique_val)):
+            val_in  = str(unique_val[i]) #value to be reclassified
+            val_out = str(out_val[i]) #value to assign
+            #val_out = str(unique_val[0]) #value to assign
+            #val = 11
+            NA_flag_val_str = str(NA_flag_val)
+            #in_file="nlcd2001_landcover_v2_2-13-11_clipped_projected_05152014.tif"
+            #out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+str(val)+file_format
+            out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+val_in+"_"+out_suffix_s+file_format
+            out_file = os.path.join(out_dir,out_file)
+
+            #Use this formatting!! this is more efficient than dealing with spaces...and can deal with 
+            #additional options later on...
+            #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]
+            cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+out_file,"--calc="+val_out+"*(A=="+val_in+")","--NoDataValue="+NA_flag_val_str]
+            out = subprocess.call(cmdStr)
+            l_out_file.append(out_file)
+        
+        return l_out_file
     
 def change_resolution_raster(in_file,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file=None,resamp_opt="near"):
     #basic command: gdalwarp -tr 10 10 input.tif output.tif
@@ -329,7 +367,118 @@ def raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,operat
     
     return file_combined
 
+## ADD new functions...
+#  - get statistics for layers in tif
+#  - create and apply mask for ME to all outputs
+#http://pcjericks.github.io/py-gdalogr-cookbook/raster_layers.html
+def getNoDataValue(rasterfn):
+    raster = gdal.Open(rasterfn)
+    band = raster.GetRasterBand(1)
+    return band.GetNoDataValue()
+    
+def raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched=False,NA_flag_val= -9999,out_file=None):
+#gdal_rasterize -a ROOF_H -where 'class="A"' -l footprints footprints.shp city_dem.tif
 
+    NA_flag_val_str = str(NA_flag_val) #note that if integer NA is not set to -9999?
+    layer_name = os.path.splitext(os.path.basename(in_vect))[0]
+    
+    #This should be an option....
+    ds = gdal.Open(in_raster)
+    ncol=ds.RasterYSize
+    nrow=ds.RasterXSize
+    #band = ds.GetRasterBand(band_nb)
+    band = ds.GetRasterBand(1)
+    data_type = gdal.GetDataTypeName(band.DataType)
+   
+    ##Make a general function to get info from  raster??
+    # Get raster georeference info: the extent of the raster!
+    
+    Projection = osr.SpatialReference()
+    Projection.ImportFromWkt(ds.GetProjectionRef())
+    proj_str = Projection.ExportToProj4() #show the format of the CRS projection object
+
+    geoTransform = ds.GetGeoTransform()
+    xmin = geoTransform[0] #Topleft x
+    ymax = geoTransform[3] #Topleft y
+    xmax = xmin + geoTransform[1]*ds.RasterXSize
+    ymin = ymax + geoTransform[5]*ds.RasterYSize
+    xres = geoTransform[1] # w-e pixel res
+    yres = geoTransform[5] # n-s pixel res
+    
+    r_extent = [xmin, ymin, xmax, ymax]
+    r_extent_str = ' '.join(map(str, r_extent))
+    
+    r_res = [abs(xres), abs(yres)] 
+    r_res = [xres, yres] 
+    
+    r_res_str = ' '.join(map(str, r_res))    
+
+    if out_file==None:
+        #create an output filename first:
+        #To avoid having a suffix attached to a name several times remove and replace by new suffix...
+        out_file = layer_name+"_rast_"+out_suffix_s+file_format
+        out_file = os.path.join(out_dir,out_file)
+    if out_file!=None:
+        #create an output filename first:
+        out_file = os.path.join(out_dir,out_file) #assuming this is the same file type? should change
+
+    #Add a option later to create a raster without having to give another  raster  image!!
+    #att_field ="CNTYCODE" #could get get the type from the field?
+    #CNTYCODE
+    #output_type = "UInt32"
+    #output_type = "Float32"
+    #if all_touched == False:
+    src_dataset = in_vect
+    dst_dataset = out_file
+    #dst_dataset ="test3.tif"
+    #os.system("gdal_rasterize -a CNTYCODE -l county24 -te 326674.8647578625 4755744.830938448 671552.8095416913 5262918.279149961 -tr 4057.387585692103 -4057.387585692103 /ssi-dss-data/DSS_SSI_data/county24.shp  test2.tif") 
+    #326674.8647578625, 4755744.830938448, 671552.8095416913, 5262918.279149961    
+    #os.system("gdal_rasterize -a CNTYCODE -l county24 -te 326674.8647578625 4755744.830938448 671552.8095416913 5262918.279149961 -tr 4057.387585692103 -4057.387585692103 /ssi-dss-data/DSS_SSI_data/county24.shp  test2.tif") 
+    if all_touched==True:
+        cmd_str = "".join(["gdal_rasterize",
+                               " -at ", #all touched pixel are converted...
+                               " "+"-a "+att_field,
+                               " -l "+layer_name,
+                               " -a_srs "+"'"+proj_str+"'",
+                               " -a_nodata "+NA_flag_val_str,
+                               " -tr "+r_res_str,
+                               " -te "+r_extent_str,
+                               " -ot "+output_type,
+                               " "+src_dataset, 
+                               " "+dst_dataset])        
+    if all_touched==False:                               
+        cmd_str = "".join(["gdal_rasterize",
+                               #" -at ", #all touched pixel are converted...
+                               " "+"-a "+att_field,
+                               " -l "+layer_name,
+                               " -a_srs "+"'"+proj_str+"'",
+                               " -a_nodata "+NA_flag_val_str,
+                               " -tr "+r_res_str,
+                               " -te "+r_extent_str,
+                               " -ot "+output_type,
+                               " "+src_dataset, 
+                               " "+dst_dataset])        
+                               
+    os.system(cmd_str)
+    
+    #Problem with cmdStr and subprocess.. find out later...works for now
+    #cmdStr = ['gdal_rasterize',
+    #         #"-b", "1",
+    #        "-a" ,att_field,
+    #       "-l", layer_name,
+     #       #"-of", file_format,
+    #          "-a_srs", proj_str,
+    #          "-a_no_data_value",NA_flag_val_str,
+    #           "-te ", "xmin ymin xmax ymax", #output extent , use the one already defined earlier!! use tap?
+    #          "-te ", r_extent_str, #output extent , use the one already defined earlier!! use tap?
+    #          #"-tr ", "xres yres",
+     #         "-tr ", r_res_str,
+     #         "-ot", output_type,
+     #         src_dataset, 
+      #       dst_dataset]
+     #out = subprocess.call(cmdStr)
+    return dst_dataset
+   
 #######################################################################
 ######################### BEGIN SCRIPT  ###############################
 #--------------------------------------------
@@ -356,14 +505,15 @@ def main():
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
     #CRS_reg = "+proj=utm +zone=19 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"
     #http://spatialreference.org/ref/epsg/2037    
-    CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
+    #CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
+    CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs" #using EPSG 26919
     CRS_aea = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
     CRS_WGS84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 
     file_format = ".tif"
     NA_flag_val = -9999
     output_type = "Float32"
-    out_suffix = "05152014"
+    out_suffix = "06042014"
     w_extent_str = "-72 48 -65 41" #minx,maxy (upper left), maxx,miny (lower right)
     use_reg_extent = True
     os.chdir(in_dir)
@@ -403,7 +553,7 @@ def main():
     #3.convert to tif (gdal_tranlslate)
     #4.reproject and clip/subset for Maine region (clip using count24?)
 
-    ### EXTRACT ZIPPED FILES ###
+    ### EXTRACT THE ASC ZIPPED FILES ###
     
     fileglob = "*asc.zip"
     pathglob = os.path.join(in_dir, fileglob)
@@ -439,6 +589,42 @@ def main():
                                   out_suffix_reg,out_dir,w_extent,NA_flag_val,output_type,clip_param=True,reproject_param=True)
 
  
+ 
+    #lf_temp = glob.glob(*)
+    #fileglob_pattern = "*projected*ncar*.tif"
+    #pathglob = os.path.join(out_dir, fileglob_pattern)
+    lf_temp = glob.glob(os.path.join(out_dir, "*projected*ncar*.tif")) #this contains the raster variable files that need to be summarized
+    lf_temp.sort()
+    
+    #Now Apply mask :
+    #first create mask from region definition:
+    in_vect=shp_fname
+    in_rast=lf_temp[0]
+    #out_suffix_s
+    att_field="CNTYCODE"
+    #file_format
+    output_type="Float32"
+    all_touched=True
+    #NA_flag_val= -9999
+    out_file=None
+        
+    region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched,NA_flag_val,out_file)
+
+    # now either reclass or apply directly the mask
+    # 
+    #var_name = lf_nlcd.keys()[j]
+    #list_var_rast = l_f_nlcd.values()[j]
+    #out_file = var_name+"_" + out_suffix+file_format
+    list_var_rast = []
+    list_var_rast.append(lf_temp[j])   
+    list_var_rast.append(region_rast_fname)
+    operation = "*"
+    out_suffix_s = "masked_"+out_suffix
+    out_file=None
+    nlcd_dss_rast = raster_calc_operation_on_list(list_var_rast,out_dir,out_suffix_s,file_format,operation,NA_flag_val,out_file)
+
+    #last step...recalculate stat?? maybe also put in the mask function...
+    
     ##### PART II: PROCESSING LAND COVER  ##########
         
     #TO avoid reproject the large layer (NLCD 30m) we find the extent of the region outile (e.g. ccounties)
