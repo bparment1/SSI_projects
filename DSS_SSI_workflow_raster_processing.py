@@ -271,6 +271,111 @@ def reclass_raster_categories(in_file,out_dir,out_suffix_s,unique_val,out_val,fi
             l_out_file.append(out_file)
         
         return l_out_file
+
+## Creating mask image from rasterinput   
+def create_raster_mask(in_file,out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_val= -9999,out_file=None):
+    #This functions creates an mask from an input raster.
+    #ALl values that are not NA will be reclassified as 1 and all other as NA.
+    #this function will be improve later on...  
+      
+    NA_flag_val_str = str(NA_flag_val)
+
+    NA_flag_val_in = getNoDataValue(in_file) #get no data val from file...
+    if out_file==None:
+        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_masked_"+out_suffix_s+file_format
+        out_file = os.path.join(out_dir,out_file)
+
+    #additional options later on...
+    val_out = str(1)
+    val_in = str(NA_flag_val_in)
+    tmp_file = "tmp.tif" #temporary file 
+    #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]
+    cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+tmp_file,"--calc="+val_out+"*(A!="+val_in+")","--NoDataValue="+NA_flag_val_str]
+    out = subprocess.call(cmdStr)
+    
+    src_dataset = tmp_file
+    dst_dataset = out_file
+    CRS_src = CRS_reg
+    cmd_str = "".join(["gdal_translate",
+                              # " "+"-projwin"+" "+w_extent,
+                            " "+"-a_srs"+" '"+CRS_src+"'",
+                            " -a_nodata "+NA_flag_val_str,
+                            " "+src_dataset, 
+                            " "+dst_dataset])            
+    os.system(cmd_str)
+    
+    return out_file
+
+def apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val= -9999,EPSG_code=None,out_file=None):
+    #This functions creates an mask from an input raster.
+    #ALl values that are not NA will be reclassified as 1 and all other as NA.
+    #this function will be improve later on...  
+      
+    NA_flag_val_str = str(NA_flag_val)
+    #NA_flag_val_in = getNoDataValue(in_file) #get no data val from file...
+    if out_file==None:
+        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_masked_"+out_suffix_s+file_format
+        out_file = os.path.join(out_dir,out_file)
+        
+    out_suffix_s = "_masked_"+out_suffix
+    out_file = lf_temp[i]
+    in_file = lf_temp[i]
+    mask_file = mask_rast_file
+    out_file = out_file.replace(out_suffix,out_suffix_s) #remove the suffix if it is there in the file name
+        
+    if EPSG_code!=None:
+        #d
+        #d
+        tmp_file = "tmp.tif"
+        src_dataset = in_file
+        dst_dataset = tmp_file
+        CRS_src = "EPSG:"+EPSG_code
+        cmd_str = "".join(["gdal_translate",
+                              # " "+"-projwin"+" "+w_extent,
+                            " "+"-a_srs"+" '"+CRS_src+"'",
+                            " -a_nodata "+NA_flag_val_str,
+                            " "+src_dataset, 
+                            " "+dst_dataset])            
+        os.system(cmd_str)
+        in_file=tmp_file
+       #
+        tmp_mask_file = "tmp_mask.tif"
+        src_dataset = mask_file
+        dst_dataset = tmp_mask_file
+        CRS_src = "EPSG:"+EPSG_code
+        cmd_str = "".join(["gdal_translate",
+                              # " "+"-projwin"+" "+w_extent,
+                            " "+"-a_srs"+" '"+CRS_src+"'",
+                            " -a_nodata "+NA_flag_val_str,
+                            " "+src_dataset, 
+                            " "+dst_dataset])            
+        os.system(cmd_str)
+        mask_file=tmp_mask_file
+       
+    #additional options later on...
+    #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]   
+    #mask_file =lf_temp[2]
+    #out_file="test.tif
+    #cmdStr = ['gdal_calc.py',
+    #              '-A',mask_file,
+    #              "--outfile="+out_file,
+    #              "--calc=1*(A*1)",
+    #              "--NoDataValue="+NA_flag_val_str]
+    #out = subprocess.call(cmdStr)
+    out_file = os.path.basename(out_file)
+    #cmdStr = ['gdal_calc.py','-A',in_file,'-B',mask_file,"--outfile="+out_file,"--calc=1*(A*B)","--NoDataValue="+NA_flag_val_str]
+    #cmdStr = ['gdal_calc.py','-A',in_file,'-B',mask_file,"--outfile="+out_file,"--calc="+"'(A*B)'","--NoDataValue="+NA_flag_val_str]
+    #out = subprocess.call(cmdStr)
+    #out = subprocess.call(cmdStr)
+    cmd_str = "".join(["gdal_calc.py",
+                              # " "+"-projwin"+" "+w_extent,
+                            " "+"-A "+in_file,
+                            " "+"-B "+"tmp_mask.tif",
+                            " --outfile="+out_file,
+                            " --calc="+"'(A*B)'"])       
+    os.system(cmd_str)
+    
+    return out_file
     
 def change_resolution_raster(in_file,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file=None,resamp_opt="near"):
     #basic command: gdalwarp -tr 10 10 input.tif output.tif
@@ -376,14 +481,14 @@ def getNoDataValue(rasterfn):
     band = raster.GetRasterBand(1)
     return band.GetNoDataValue()
     
-def raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched=False,NA_flag_val= -9999,out_file=None):
+def raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched=False,NA_flag_val= -9999,CRS_reg=None,out_file=None):
 #gdal_rasterize -a ROOF_H -where 'class="A"' -l footprints footprints.shp city_dem.tif
 
     NA_flag_val_str = str(NA_flag_val) #note that if integer NA is not set to -9999?
     layer_name = os.path.splitext(os.path.basename(in_vect))[0]
     
     #This should be an option....
-    ds = gdal.Open(in_raster)
+    ds = gdal.Open(in_rast)
     ncol=ds.RasterYSize
     nrow=ds.RasterXSize
     #band = ds.GetRasterBand(band_nb)
@@ -392,11 +497,16 @@ def raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file
    
     ##Make a general function to get info from  raster??
     # Get raster georeference info: the extent of the raster!
-    
-    Projection = osr.SpatialReference()
-    Projection.ImportFromWkt(ds.GetProjectionRef())
-    proj_str = Projection.ExportToProj4() #show the format of the CRS projection object
-
+    if CRS_reg==None:        
+        Projection = osr.SpatialReference()
+        EPSG_code= Projection.GetAuthorityCode(None)
+        Projection.ImportFromWkt(ds.GetProjectionRef())
+        proj_str = Projection.ExportToProj4() #show the format of the CRS projection object
+    #Problem even though the EPSG code is 26919 the proj4 exported does the not the input:
+   #
+    if CRS_reg!=None:
+        proj_str =CRS_reg
+        
     geoTransform = ds.GetGeoTransform()
     xmin = geoTransform[0] #Topleft x
     ymax = geoTransform[3] #Topleft y
@@ -460,6 +570,15 @@ def raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file
                                " "+dst_dataset])        
                                
     os.system(cmd_str)
+     
+    #cmd_str = "".join(["gdal_translate",
+    #                          # " "+"-projwin"+" "+w_extent,
+    #                           " "+"-a_srs"+" '"+CRS_src+"'",
+    #                           " -a_nodata "+NA_flag_val_str,
+    #                           " "+src_dataset, 
+    #                          " "+dst_dataset])            
+   
+    #not assigning proj_str properply so...
     
     #Problem with cmdStr and subprocess.. find out later...works for now
     #cmdStr = ['gdal_rasterize',
@@ -479,6 +598,28 @@ def raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file
      #out = subprocess.call(cmdStr)
     return dst_dataset
    
+def calculate_raster_stat(rasterfn,generate_xml=False):
+    ds = gdal.Open(rasterfn)
+    band = ds.GetRasterBand(1)
+
+    stats = band.ComputeStatistics(1)
+    band = None
+    ds = None
+    #stats contains: min , max, mean ,std
+    if generate_xml==True:
+        cmd_str = "gdalinfo -stats "+rasterfn
+        os.system(cmd_str)
+        
+    return stats
+
+### Create a custom function to plot image...
+#import matplotlib.image as mpimg
+#img=mpimg.imread('MARBLES.TIF ')
+#imgplot = plt.imshow(img)
+#if 
+#rast_fname, to create an array not read in memory use memmap (memory mapping)!!!!!
+#img = np.memmap(rast_fname, dtype=np.int64, shape=(512, 512))
+
 #######################################################################
 ######################### BEGIN SCRIPT  ###############################
 #--------------------------------------------
@@ -507,6 +648,8 @@ def main():
     #http://spatialreference.org/ref/epsg/2037    
     #CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
     CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs" #using EPSG 26919
+    CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
+
     CRS_aea = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
     CRS_WGS84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 
@@ -588,17 +731,19 @@ def main():
             outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,
                                   out_suffix_reg,out_dir,w_extent,NA_flag_val,output_type,clip_param=True,reproject_param=True)
 
- 
- 
     #lf_temp = glob.glob(*)
     #fileglob_pattern = "*projected*ncar*.tif"
     #pathglob = os.path.join(out_dir, fileglob_pattern)
     lf_temp = glob.glob(os.path.join(out_dir, "*projected*ncar*.tif")) #this contains the raster variable files that need to be summarized
     lf_temp.sort()
     
-    #Now Apply mask :
+    #Now Apply mask :line
+     
+    out_suffix_reg = "reg_"+out_suffix #the region file projected in the defined projectio 
+    w_extent_reg, reg_area_poly_projected = calculate_region_extent(shp_fname,out_suffix_reg,CRS_reg,out_dir)
+    
     #first create mask from region definition:
-    in_vect=shp_fname
+    in_vect=reg_area_poly_projected
     in_rast=lf_temp[0]
     #out_suffix_s
     att_field="CNTYCODE"
@@ -608,23 +753,34 @@ def main():
     #NA_flag_val= -9999
     out_file=None
         
-    region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched,NA_flag_val,out_file)
+    #region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched,NA_flag_val,out_file)
+    region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix,att_field,file_format,output_type,all_touched,NA_flag_val,CRS_reg,out_file)
 
     # now either reclass or apply directly the mask
-    # 
-    #var_name = lf_nlcd.keys()[j]
-    #list_var_rast = l_f_nlcd.values()[j]
-    #out_file = var_name+"_" + out_suffix+file_format
-    list_var_rast = []
-    list_var_rast.append(lf_temp[j])   
-    list_var_rast.append(region_rast_fname)
-    operation = "*"
-    out_suffix_s = "masked_"+out_suffix
-    out_file=None
-    nlcd_dss_rast = raster_calc_operation_on_list(list_var_rast,out_dir,out_suffix_s,file_format,operation,NA_flag_val,out_file)
+    #This functions creates an mask from an input raster.
+    #ALl values that are not NA will be reclassified as 1 and all other as NA.
+    #this function will be improve later on...  
 
-    #last step...recalculate stat?? maybe also put in the mask function...
+    in_file = region_rast_fname
+    out_file = "mask_regions_"+out_suffix+file_format
+    #mask_rast_file = create_raster_mask(in_file,ouout_dir,out_suffix_s,file_format,NA_flag_val,out_file)
+    mask_rast_file = create_raster_mask(in_file,out_dir,out_suffix,file_format,CRS_reg,NA_flag_val,out_file)
     
+    #problem with the mask does not contain full
+    lf_temp_masked = []
+    for i in range(0,len(lf_temp)):
+        out_suffix_s = "_masked_"+out_suffix
+        out_file = lf_temp[i]
+        in_file = lf_temp[i]
+        mask_file = mask_rast_file
+        out_file = out_file.replace(out_suffix,out_suffix_s) #remove the suffix if it is there in the file name
+        f_masked = apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,out_file)
+        lf_temp_masked.append(f_masked)
+        #Now get stat
+        
+    #last step...recalculate stat?? maybe also put in the mask function...
+
+    ##################################################    
     ##### PART II: PROCESSING LAND COVER  ##########
         
     #TO avoid reproject the large layer (NLCD 30m) we find the extent of the region outile (e.g. ccounties)
