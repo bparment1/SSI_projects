@@ -19,7 +19,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 06/04/2014
+# Updated on: 06/07/2014
 # Project: DSS-SSI
 #
 ####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
@@ -198,51 +198,100 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
 #help(gdal.ReprojectImage)
 
 #tto big?? can crash if not enough memory so read by row!!
+#Ok changed...reading rows by row binary values but quite  slow...maybe read by 2 rows???
+#this currently taks aobut 5minutes for ths large 19913*15583 or about 310 millions of pixels in nlcd raster files
+#At later stage test np.memmap and paralelization? Sure...
 def find_unique_val_raster(in_raster,band_nb=1):
+    #Function  uses the classic approach for large raster images...ie. read by chunk
+    #and process rows by rows simiar to IDRISI delphi code.
+    #in_raster = "county24reg_06042014_rast_06042014.tif"
+    #in_raster = "nlcd2006_landcover_4-20-11_se5_clipped_projected_06042014.tif"
     ds = gdal.Open(in_raster)
-    ncol=ds.RasterYSize
-    nrow=ds.RasterXSize
+    nrow = ds.RasterYSize
+    ncol =ds.RasterXSize        
+
     band = ds.GetRasterBand(band_nb)
     data_type = gdal.GetDataTypeName(band.DataType)
+    block_sizes = band.GetBlockSize()  #this is equal to number of rows in a Geo
+    no_data_val = band.GetNoDataValue()
 
+    list_unique_val = []
+    for i in range (nrow):
+        #data = band.ReadAsArray(0,i,nrow,1)
+        #data = band.ReadAsArray(0,1,i,ncol)
+        #data = band.ReadAsArray(1,0,1,ncol) #read first row  
+        data = band.ReadAsArray(0,i,ncol,1) #read by row and place in a buffer array        
+        val = np.unique(data)
+        list_unique_val= list_unique_val+(val.tolist())
+        unique_val = list(set(list_unique_val))
+    #img = np.memmap(rast_fname, dtype=np.float32, shape=(19913, 15583))? could be an alternative using
+    #memory mapping for large numpy array??
     #ar = numpy.zeros((nrow,ncol),dtype=data_type) #data type 'Byte' not understood
     #ar = np.zeros((nrow,ncol))
-
-    ar = np.array(band.ReadAsArray()) #reading everythin in memory!!! needs to be changed!!!
-    values = np.unique(ar)
-    
-    return values
+    #ar = np.array(band.ReadAsArray()) #reading everythin in memory!!! needs to be changed!!!
+    #ar = band.ReadAsArray() #reading everythin in memory!!! needs to be changed!!!
+    #values = np.unique(ar)
+    #values = np.array(unique_val)
+    #values = np.where(values!= no_data_val)
+    band = None
+    ds = None
+    return unique_val
     
 ## Creating boolean images from categorical rasters...such as NLCD   
 def breakout_raster_categories(in_file,out_dir,out_suffix_s,unique_val,file_format,NA_flag_val= -9999,boolean=True):
-        #This functions creates an image per unique value input categorical image.
-        #The output images can be boolean or have the unique values extracted.
-        #This can be used to reclassify images...!!
+    
+    #This functions creates an image per unique value input categorical image.
+    #The output images can be boolean or have the unique values extracted.
+    #This can be used to reclassify images...!!
         
-        ### Add loop here
-        l_out_file = []
-        for i in range(0,len(unique_val)):
-            val_in  = str(unique_val[i]) #value to be reclassified
-            if boolean==True:
-                val_out = str(1)
-            if boolean==False:
-                val_out = str(unique_val[i]) #value to assign
-            #val_out = str(unique_val[0]) #value to assign
-            #val = 11
-            NA_flag_val_str = str(NA_flag_val)
-            #in_file="nlcd2001_landcover_v2_2-13-11_clipped_projected_05152014.tif"
-            #out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+str(val)+file_format
-            out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+val_in+"_"+out_suffix_s+file_format
-            out_file = os.path.join(out_dir,out_file)
+    ### Add loop here
+    #should only convert integer val to float if the inputfile is float!!!
+    #
+    ds = gdal.Open(in_file)
+    band = ds.GetRasterBand(1)
+    data_type = gdal.GetDataTypeName(band.DataType)
+    no_data_val = band.GetNoDataValue()
 
-            #Use this formatting!! this is more efficient than dealing with spaces...and can deal with 
-            #additional options later on...
-            #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]
-            cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+out_file,"--calc="+val_out+"*(A=="+val_in+")","--NoDataValue="+NA_flag_val_str]
-            out = subprocess.call(cmdStr)
-            l_out_file.append(out_file)
+    l_out_file = []
+    for i in range(0,len(unique_val)):
+        #d
+        #val_in  = str(unique_val[0][i]) #value to be reclassified   
+        if data_type == "Float32":
+            val_in  = str(float(unique_val[i])) #value to be reclassified
+        if data_type == "UInt32":
+            val_in  = str(unique_val[i]) #value to be reclassified
+        if data_type == "Byte":
+            val_in  = str(unique_val[i]) #value to be reclassified
+        if boolean==True:
+            val_out = str(1)
+        if boolean==False:
+            val_out = str(val_in) #value to assign
+        #val_out = str(unique_val[0]) #value to assign
+        #val = 11
+        NA_flag_val_str = str(NA_flag_val)
+        #in_file="nlcd2001_landcover_v2_2-13-11_clipped_projected_05152014.tif"
+        #out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+str(val)+file_format
+        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+val_in+"_"+out_suffix_s+file_format
+        out_file = os.path.join(out_dir,out_file)
+
+        #Use this formatting!! this is more efficient than dealing with spaces...and can deal with 
+        #additional options later on...
+        #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]
+        cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+out_file,"--calc="+val_out+"*(A=="+val_in+")","--NoDataValue="+NA_flag_val_str]
+        out = subprocess.call(cmdStr)
+        #cmd_str = "".join(["gdal_calc.py",
+        #                  # " "+"-projwin"+" "+w_extent,
+        #                " "+"-A "+in_file,
+        #                " --outfile="+out_file,
+        #                "--calc="+val_out+"*(A=="+val_in+")",
+        #                "--NoDataValue="+NA_flag_val_str])       
+        #os.system(cmd_str)
         
-        return l_out_file
+        l_out_file.append(out_file)
+        
+        band = None
+        ds = None
+    return l_out_file
 
 ## Creating boolean images from categorical rasters...such as NLCD   
 def reclass_raster_categories(in_file,out_dir,out_suffix_s,unique_val,out_val,file_format,NA_flag_val= -9999):
@@ -268,11 +317,23 @@ def reclass_raster_categories(in_file,out_dir,out_suffix_s,unique_val,out_val,fi
             #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]
             cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+out_file,"--calc="+val_out+"*(A=="+val_in+")","--NoDataValue="+NA_flag_val_str]
             out = subprocess.call(cmdStr)
+            cmd_str = "".join(["gdal_calc.py",
+                               #" -at ", #all touched pixel are converted...
+                               " "+"-a "+att_field,
+                               " -l "+layer_name,
+                               " -a_srs "+"'"+proj_str+"'",
+                               " -a_nodata "+NA_flag_val_str,
+                               " -tr "+r_res_str,
+                               " -te "+r_extent_str,
+                               " -ot "+output_type,
+                               " "+src_dataset, 
+                               " "+dst_dataset])        
+
             l_out_file.append(out_file)
         
         return l_out_file
 
-## Creating mask image from rasterinput   
+## Creating mask image from rasterinput: this creates a boolean image from input layer   
 def create_raster_mask(in_file,out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_val= -9999,out_file=None):
     #This functions creates an mask from an input raster.
     #ALl values that are not NA will be reclassified as 1 and all other as NA.
@@ -288,9 +349,9 @@ def create_raster_mask(in_file,out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_
     #additional options later on...
     val_out = str(1)
     val_in = str(NA_flag_val_in)
-    tmp_file = "tmp.tif" #temporary file 
+    tmp_file = "tmp_"+out_suffix_s+file_format #temporary file, should clean this up...add later...
     #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]
-    cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+tmp_file,"--calc="+val_out+"*(A!="+val_in+")","--NoDataValue="+NA_flag_val_str]
+    cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+tmp_file,"--calc="+val_out+"*(A!="+val_in+")","--NoDataValue="+NA_flag_val_str,"--overwrite"]
     out = subprocess.call(cmdStr)
     
     src_dataset = tmp_file
@@ -317,10 +378,10 @@ def apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag
         out_file = os.path.splitext(os.path.basename(in_file))[0]+"_masked_"+out_suffix_s+file_format
         out_file = os.path.join(out_dir,out_file)
         
-    out_suffix_s = "_masked_"+out_suffix
-    out_file = lf_temp[i]
-    in_file = lf_temp[i]
-    mask_file = mask_rast_file
+    #out_suffix_s = "_masked_"+out_suffix
+    #out_file = lf_temp[i]
+    #in_file = lf_temp[i]
+    #mask_file = mask_rast_file
     out_file = out_file.replace(out_suffix,out_suffix_s) #remove the suffix if it is there in the file name
         
     if EPSG_code!=None:
@@ -618,7 +679,7 @@ def calculate_raster_stat(rasterfn,generate_xml=False):
 #imgplot = plt.imshow(img)
 #if 
 #rast_fname, to create an array not read in memory use memmap (memory mapping)!!!!!
-#img = np.memmap(rast_fname, dtype=np.int64, shape=(512, 512))
+#img = np.memmap(rast_fname, dtype=np.float32, shape=(19913, 15583))
 
 #######################################################################
 ######################### BEGIN SCRIPT  ###############################
@@ -813,10 +874,17 @@ def main():
         w_extent = w_extent_aea
         infile_l_f = f_list
         #outfile = pdb.runcall(create_raster_region,j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,w_extent,clip_param=True)
-        outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,w_extent,clip_param=True)
+        #outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,w_extent,clip_param=True)
+        #output_type="UInt32"
+        output_type = None   #does not work with real number  assignment...     
+        outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,
+                                  out_suffix,out_dir,w_extent,NA_flag_val,output_type,clip_param=True,reproject_param=True)
+
         outfile_list.append(outfile)
         ### NOW RECLASSIFY VALUES: i.e. BREAKOUT IDRISI like for unique values (land cover type)
-        unique_val = find_unique_val_raster(outfile) #This is inefficient! bad function!! rewrite!!
+        unique_val = find_unique_val_raster(outfile) #This has been modified processing by blocks (rows)
+        #val=unique_val[0]
+        
         outfile_breakout_nlcd = breakout_raster_categories(outfile,out_dir,out_suffix,unique_val,file_format,NA_flag_val= -9999,boolean=True)
         outfile_breakout_list.append(outfile_breakout_nlcd)
         
@@ -891,7 +959,54 @@ def main():
         change_resolution_raster(infile,res_xy_val,out_suffix,out_dir,file_format,output_type,NA_flag_val,out_file,resamp_opt)
         #change_resolution_raster(infile,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file,resamp_opt="average"):
         lf_nlcd_prop900.append(out_file)
-            
+
+    #### Start of future function
+    #Now Apply mask :line, make this a function...
+     
+    out_suffix_reg = "reg900_"+out_suffix #the region file projected in the defined projectio 
+    w_extent_reg, reg_area_poly_projected = calculate_region_extent(shp_fname,out_suffix_reg,CRS_reg,out_dir)
+    
+    #first create mask from region definition:
+    in_vect=reg_area_poly_projected
+    in_rast=lf_nlcd_prop900[0]
+    #out_suffix_s
+    att_field="CNTYCODE"
+    #file_format
+    output_type="Float32"
+    all_touched=True
+    #NA_flag_val= -9999
+    out_file=None
+    EPSG_code="26919"
+    #region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched,NA_flag_val,out_file)
+    region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix,att_field,file_format,output_type,all_touched,NA_flag_val,CRS_reg,out_file)
+
+    # now either reclass or apply directly the mask
+    #This functions creates an mask from an input raster.
+    #ALl values that are not NA will be reclassified as 1 and all other as NA.
+    #this function will be improve later on...  
+
+    in_file = region_rast_fname
+    out_file = "mask_regions_"+out_suffix_reg+file_format
+    #mask_rast_file = create_raster_mask(in_file,ouout_dir,out_suffix_s,file_format,NA_flag_val,out_file)
+    mask_rast_file = create_raster_mask(in_file,out_dir,out_suffix,file_format,CRS_reg,NA_flag_val,out_file)
+    
+    #problem with the mask does not contain full
+    lf_var_masked = []
+    lf_var = lf_nlcd_prop900
+    for i in range(0,len(lf_var)):
+        out_suffix_s = "_masked_"+out_suffix
+        out_file = lf_var[i]
+        in_file = lf_var[i]
+        mask_file = mask_rast_file
+        out_file = out_file.replace(out_suffix,out_suffix_s) #remove the suffix if it is there in the file name
+        #f_masked = apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,out_file,EPSG_code)
+        f_masked = apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,EPSG_code,out_file)
+        #f_masked = pdb.runcall(apply_raster_mask,in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,out_file,EPSG_code)
+        lf_var_masked.append(f_masked)
+        #Now get stat
+    
+    ## End of future function
+    
     return None
     
 #Need to add this to run
