@@ -92,8 +92,8 @@ def calculate_region_extent(reg_outline,out_suffix_dst,CRS_dst,out_dir):
     #w_extent formated for use in gdal!!
     return(w_extent,dst_dataset)
 
-def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,
-                         w_extent,NA_flag_val,output_type=None,clip_param=True,reproject_param=True):
+def create_raster_region(j,in_dir,infile_l_f,CRS_dst,file_format,out_suffix,out_dir,
+                         w_extent,CRS_src=None,NA_flag_val=None,output_type=None,clip_param=True,reproject_param=True):
     
     #### Function parameters
     #in_dir: input directory
@@ -112,7 +112,24 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
     in_file= infile_l_f[j]
     #CRS_src = CRS_aea
     #CRS_dst = CRS_reg
-    NA_flag_val_str = str(NA_flag_val)
+    
+    ds = gdal.Open(in_file)
+    band = ds.GetRasterBand(1)
+    data_type = gdal.GetDataTypeName(band.DataType)
+    no_data_val = band.GetNoDataValue()
+    
+    Projection = osr.SpatialReference() #create a projection object
+    EPSG_code= Projection.GetAuthorityCode(None)
+    Projection.ImportFromWkt(ds.GetProjectionRef())
+    proj_str = Projection.ExportToProj4() #show the format of the CRS projection object
+
+    if NA_flag_val==None:
+        NA_flag_val_str = str(no_data_val)
+    if NA_flag_val!=None:
+        NA_flag_val_str = str(NA_flag_val)
+    if CRS_src==None:
+        CRS_src = proj_str
+    
     ## FIRST CLIP for every file in hte list crop
     if clip_param == True:
         
@@ -188,7 +205,8 @@ def create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suf
         os.system(cmd_str)
     #can also add srcnodata
     output_dataset = dst_dataset                
-    
+    band = None
+    ds = None
     return(output_dataset)
     #end of function
 
@@ -214,6 +232,7 @@ def find_unique_val_raster(in_raster,band_nb=1):
     data_type = gdal.GetDataTypeName(band.DataType)
     block_sizes = band.GetBlockSize()  #this is equal to number of rows in a Geo
     no_data_val = band.GetNoDataValue()
+
 
     list_unique_val = []
     for i in range (nrow):
@@ -1007,10 +1026,79 @@ def main():
     
     ## End of future function
     
+    
+    ##### Now process house density, longterm temp average and ...
+    #dir_path = os.path.join(in_dir,"VarsFeb2014")
+    lf_var_pop = glob.glob(os.path.join(in_dir,"*pop.tif"))
+    lf_var_hou = glob.glob(os.path.join(in_dir,"*housing.tif"))
+    lf_var = lf_var_pop + lf_var_hou
+    #in_dir = dir_path
+    #lf_var.sort()
+    #CRS_dst = CRS_WGS84 #this is the projection system of climate ccsm predictions
+    
+    #this can be a funciontion !!!! 
+    out_suffix_dst = "_US_AEA"
+    CRS_dst = CRS_aea
+    #shp_reg_outline = os.path.join("/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
+    #                                       ,"county24.shp")
+
+    if use_reg_extent==True:
+        w_extent_aea, reg_area_poly_us_aea = calculate_region_extent(shp_reg_outline,out_suffix_dst,CRS_dst,out_dir)
+        #w_extent= "-71.083923738042 47.4598539782516 -66.8854440488051 42.9171281482886"
+    elif use_reg_extent==False:
+        w_extent = w_extent_str #this is in WGS84
+        #end if
+        
+    f_list = lf_var
+    outfile_list = []
+
+    for j in range(0,len(f_list)):
+        #d
+
+        CRS_src = CRS_aea #source projection syst
+        CRS_dst = CRS_reg  #target projection syst
+        w_extent = w_extent_aea
+        infile_l_f = f_list
+        #outfile = pdb.runcall(create_raster_region,j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,w_extent,clip_param=True)
+        #outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,out_suffix,out_dir,w_extent,clip_param=True)
+        #output_type="Float64"
+        #output_type = None   #does not work with real number  assignment...     
+        outfile = create_raster_region(j,in_dir,infile_l_f,CRS_dst,file_format,
+                                  out_suffix,out_dir,w_extent,CRS_src=None,NA_flag_val=None,output_type=None,clip_param=True,reproject_param=True)
+
+        outfile_list.append(outfile)
+        ### NOW RECLASSIFY VALUES:f i.e. BREAKOUT IDRISI like for unique values (land cover type)
+        #unique_val = find_unique_val_raster(outfile) #This has been modified processing by blocks (rows)
+        #val=unique_val[0]
+        
+        #outfile_breakout_nlcd = breakout_raster_categories(outfile,out_dir,out_suffix,unique_val,file_format,NA_flag_val= -9999,boolean=True)
+        #outfile_breakout_list.append(outfile_breakout_nlcd)
+        
+
+    #lf_temp = glob.glob(*)
+    #fileglob_pattern = "*projected*ncar*.tif"
+    #pathglob = os.path.join(out_dir, fileglob_pattern)
+    lf_temp = glob.glob(os.path.join(out_dir, "*projected*ncar*.tif")) #this contains the raster variable files that need to be summarized
+    lf_temp.sort()
+
     return None
     
 #Need to add this to run
 if __name__ == '__main__':
     main()
+
+gdal_translate /ssi-dss-data/DSS_SSI_data/ser90_housing.tif projwin 1930763.951542  3013034.834472 2263786.175566  2487923.505723
+dst_dataset="test44.tif"
+src_dataset = "/ssi-dss-data/DSS_SSI_data/ser90_housing.tif"
+cmd_str = "".join(["gdal_translate",
+                              " "+"-projwin"+" "+w_extent,
+                              #" "+"-a_srs"+" '"+CRS_src+"'",
+                              #" -a_nodata "+NA_flag_val_str,
+                              " "+src_dataset, 
+                              " "+dst_dataset])            
+os.system(cmd_str)
+os.system("gdalsrsinfo -o proj4 /ssi-dss-data/DSS_SSI_data/ser90_housing.tif")
+'+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs '
+This is not matching the aea description assigned!!!
 
 ################# End of script ################# 
