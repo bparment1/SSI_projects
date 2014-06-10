@@ -10,12 +10,13 @@
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 06/02/2014
+# Updated on: 06/10/2014
 # Project: DSS-SSI
 #
 # TODO:
-# - Need to add more functions by breaking out code!!...
+# - Need to add more functions by breaking out code!!...--> general call to summary
 # - improve performance...by using in multiprocessing pool
+# - add option to use raster by raster method for town summaries...
 #
 ######## LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
 
@@ -565,7 +566,7 @@ def main():
 
     #EPSG: http://spatialreference.org/ref/epsg/26919/proj4/ -->  
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
-    out_suffix = "05152014"
+    out_suffix = "06042014"
     os.chdir(in_dir) #set current dir
     #os.getcwd() #check current dir
     out_dir = in_dir
@@ -581,7 +582,7 @@ def main():
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
     #file_format = ".tif"
 
-    SRS_EPSG = "2037"
+    SRS_EPSG = "26919"
     #Database information       
     db_name ="test_ssi_db3"
     db_name ="test_ssi_db2"
@@ -739,6 +740,77 @@ def main():
     df_val.ix[1:10,] #print first 10 rows with columns name for quick check
     df_val["value"].describe() #summary values and range for checking output...
 
+
+    ############ Summarize Housing density and population data ####################
+
+    #ser00_housing_clipped_projected_06042014.tif
+    lf_var_pop = glob.glob(os.path.join(out_dir,"*pop_clipped_projected*.tif"))
+    lf_var_hou = glob.glob(os.path.join(out_dir,"*housing_clipped_projected*.tif"))
+    lf_var_hist_temp = glob.glob(os.path.join(out_dir,"*me_hist_*_clipped_projected*.tif"))
+    lf_var = lf_var_pop + lf_var_hou + lf_var_hist_temp
+      
+#['/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser00_pop_clipped_projected_06042014.tif',
+# '/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser10_pop_clipped_projected_06042014.tif',
+# '/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser90_pop_clipped_projected_06042014.tif',
+ #'/ssi-dss-data/DSS_SSI_data/output_data_06042014/ses00_pop_clipped_projected_06042014.tif',
+ #'/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser10_housing_clipped_projected_06042014.tif',
+ #'/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser90_housing_clipped_projected_06042014.tif',
+ #'/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser00_housing_clipped_projected_06042014.tif']
+    
+    Ser_var_name = pd.Series(["ser_pop_2000","ser_pop_2010","ser_pop_1990","ses_pop_2000",
+                              "ser_housing_2000","ser_housing_2010","ser_housing_1990",
+                              "hist_tmin","hist_tmean","hist_tmax"])
+            
+    #inputs
+    #var_info_NLCD = create_var_names_from_files_NLCD(l_f_valueType_NLCD)
+    #df_info = pd.DataFrame(var_info_NLCD) 
+    #Ser_var_name = df_info['category'] +"_" +df_info['var']+"_"+df_info["year"] #panda series with name of var
+    variable_name =  "ser"
+    #make a series from the list:
+    lf_rast_fname = lf_var #copy by refernce!!
+    #region_name, zonal_stat + all the inputs  for calculate_zonal_statistics
+    
+    ## Will be wrap in a function at later stage of the code !!
+    
+    #This will be parallelized and looped through dict_rast_fname 
+    #can make one additional loop to reduce the repitition with the variable list of files
+
+    list_rows_var = [] # defined lenth right now, will contains rows from SQL query
+    list_df_var = [] # defined lenth right now, will contain dataframe from sql query
+
+    for i in range(0,len(lf_rast_fname)):
+    #for i in range(0,2):
+        var_name = Ser_var_name[i]
+        out_suffix_s = var_name + "_"+out_suffix
+        #test, test_df = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
+        rows,df = caculate_zonal_statistics(i,out_dir,out_suffix_s,lf_rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,var_name,tile_size)
+        list_df_var.append(df) #add object rows to list
+        list_rows_var.append(rows) #add object rows to list
+        
+    ##Write out rows
+    fname = "list_rows_"+variable_name+"_"+out_suffix+".dat"
+    fname = os.path.join(out_dir,fname)
+    save_data(list_rows_var,fname)
+    ##Write out dataframe
+    fname = "list_df_"+variable_name+"_"+out_suffix+".dat"
+    fname = os.path.join(out_dir,fname)
+    save_data(list_df_var,fname)
+
+    df_var = pd.concat(list_df_var) #problem with the row indices
+    nb_rows = df_var['means'].count()
+    new_index = np.arange(0,nb_rows).tolist()  
+    df_var['ni'] = new_index #change the rows index
+    df_var = df_var.set_index('ni')
+    #df_var[df_var['means']> 200][['county','means']] #this is an example of subset of data.frame
+    #note that there is a problem with name county transformed to lower case
+    df_val = df_var[[region_name.lower(),zonal_stat,'var']] #select specific columns in a dataframe
+    df_val.columns = ["Name","value","valueType"] #rename columns 
+    df_val["type"] = [region_type]*nb_rows #create new column...
+    #variable_name = "temp" #set up at the beginning
+    df_val.to_csv("df_zonal_combined_"+variable_name+"_"+out_suffix+".csv")
+    df_val.ix[1:10,] #print first 10 rows with columns name for quick check
+    df_val["value"].describe() #summary values and range for checking output...
+    
 
     return None
     
