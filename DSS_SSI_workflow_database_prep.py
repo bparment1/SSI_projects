@@ -10,7 +10,7 @@
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 06/10/2014
+# Updated on: 06/24/2014
 # Project: DSS-SSI
 #
 # TODO:
@@ -553,13 +553,16 @@ def main():
     #in_dir_poly =     #in_dir = "/ssi-dss-data/DSS_SSI_data/"
     #in_dir ="/home/parmentier/Data/IPLANT_project/Maine_interpolation/DSS_SSI_data/"
     in_dir ="/ssi-dss-data/DSS_SSI_data"
+    #shp_fname = county24.shp #run for county
+    shp_fname = "metwp24.shp" # run for town...
+    shp_fname = os.path.join(in_dir,shp_fname) 
+    #region_name = "COUNTY" #name of the column containing the id for each entities...
+    region_name = "TOWN" #name of the column containing the id for each entities...
     
-    shp_fname = os.path.join(in_dir,"county24.shp")
-    region_name = "COUNTY" #name of the column containing the id for each entities...
     variable_name = "temp" #type of variable can also be nlcd
     #region_name = "CNTYCODE"
     #if region_name is None then create an ID? Add this option later on.
-    region_type = "C"    #type for the region entity: C for county, T for town  
+    region_type = "T"    #type for the region entity: C for county, T for town  
     zonal_stat = "means" #This is the statistic extracted from the region
 
     #polygon_input_shp_file = "metwp24.shp"
@@ -591,7 +594,7 @@ def main():
     #user_name = "parmentier" 
     postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"  #on SSI Maine
     tile_size = 1  #this set the tile size for the raster postgis table
-    NA_flag_val = -9999
+    NA_flag_val = -9999 #this is not the case of ser and se data since it is float64 
     #postgres_path_bin = ""  #on ATLAS NCEAS
     
     #polygon_input_shp_table = "counties"    
@@ -599,12 +602,12 @@ def main():
     
     ## Get input raster lists containg information to be summarized
     #Temperature info:
-    fileglob_pattern = "*projected*ncar*.tif"
+    fileglob_pattern = "*projected*ncar*masked*.tif"
     pathglob = os.path.join(out_dir, fileglob_pattern)
     l_f_valueType = glob.glob(pathglob) #this contains the raster variable files that need to be summarized
     l_f_valueType.sort(key=natural_keys) #mixed sorting of files
     #NLCD land cover info:
-    fileglob_pattern = "nlcd_*_*_proportion_900_900_*.tif"
+    fileglob_pattern = "nlcd_*_*_proportion_900_900_*masked*.tif"
     pathglob = os.path.join(out_dir, fileglob_pattern)
     l_f_valueType_NLCD = glob.glob(pathglob) #this contains the raster variable files that need to be summarized
     l_f_valueType_NLCD.sort(key=natural_keys) #mixed sorting of files
@@ -648,7 +651,7 @@ def main():
 
     var_info = create_var_names_from_files(lf_rast_fname)
     df_info = pd.DataFrame(var_info)
-    Ser_var_name = df_info['decade'] +"_" +df_info['month']+"_"+df_info["var"] #panda series with name of var
+    type_var_name = df_info['decade'] +"_" +df_info['month']+"_"+df_info["var"] #panda series with name of var
     
     #This will be parallelized and looped through dict_rast_fname 
     #can make one additional loop to reduce the repitition with the variable list of files
@@ -658,7 +661,7 @@ def main():
     
     for i in range(0,len(lf_rast_fname)):
     #for i in range(0,2):
-        var_name = Ser_var_name[i]
+        var_name = type_var_name[i]
         out_suffix_s = var_name + "_"+out_suffix
         #test, test_df = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
         rows,df = caculate_zonal_statistics(i,out_dir,out_suffix_s,lf_rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,var_name,tile_size)
@@ -666,11 +669,11 @@ def main():
         list_rows_var.append(rows) #add object rows to list
         
     ##Write out rows
-    fname = "list_rows_"+variable_name+"_"+out_suffix+".dat"
+    fname = "list_rows_"+region_name+"_"+variable_name+"_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_rows_var,fname)
     ##Write out dataframe
-    fname = "list_df_"+variable_name+"_"+out_suffix+".dat"
+    fname = "list_df_"+region_name+"_"+variable_name+"_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_df_var,fname)
 
@@ -685,7 +688,7 @@ def main():
     df_val.columns = ["Name","value","valueType"] #rename columns 
     df_val["type"] = [region_type]*nb_rows #create new column...
     variable_name = "temp" #set up at the beginning
-    df_val.to_csv("df_zonal_combined_"+variable_name+"_"+out_suffix+".csv")
+    df_val.to_csv("df_zonal_combined_"+region_name+"_"+variable_name+"_"+out_suffix+".csv")
     df_val.ix[1:10,] #print first 10 rows with columns name for quick check
     df_val["value"].describe() #summary values and range for checking output...
     
@@ -694,7 +697,7 @@ def main():
     #inputs
     var_info_NLCD = create_var_names_from_files_NLCD(l_f_valueType_NLCD)
     df_info = pd.DataFrame(var_info_NLCD) 
-    Ser_var_name = df_info['category'] +"_" +df_info['var']+"_"+df_info["year"] #panda series with name of var
+    type_var_name = df_info['category'] +"_" +df_info['var']+"_"+df_info["year"] #panda series with name of var
     variable_name =  "NLCD"
     lf_rast_fname = l_f_valueType_NLCD #copy by refernce!!
     #region_name, zonal_stat + all the inputs  for calculate_zonal_statistics
@@ -706,22 +709,24 @@ def main():
 
     list_rows_var = [] # defined lenth right now, will contains rows from SQL query
     list_df_var = [] # defined lenth right now, will contain dataframe from sql query
-
+    
     for i in range(0,len(lf_rast_fname)):
     #for i in range(0,2):
-        var_name = Ser_var_name[i]
+        var_name = type_var_name[i]
         out_suffix_s = var_name + "_"+out_suffix
+        #NA_flag_val_rast = 1.175494351e-38
+        NA_flag_val_rast = getNoDataValue(lf_rast_fname[i])
         #test, test_df = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
-        rows,df = caculate_zonal_statistics(i,out_dir,out_suffix_s,lf_rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,var_name,tile_size)
+        rows,df = caculate_zonal_statistics(i,out_dir,out_suffix_s,lf_rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val_rast,var_name,tile_size)
         list_df_var.append(df) #add object rows to list
         list_rows_var.append(rows) #add object rows to list
         
     ##Write out rows
-    fname = "list_rows_"+variable_name+"_"+out_suffix+".dat"
+    fname = "list_rows_"+region_name+"_"+variable_name+"_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_rows_var,fname)
     ##Write out dataframe
-    fname = "list_df_"+variable_name+"_"+out_suffix+".dat"
+    fname = "list_df_"+region_name+"_"+variable_name+"_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_df_var,fname)
 
@@ -736,17 +741,16 @@ def main():
     df_val.columns = ["Name","value","valueType"] #rename columns 
     df_val["type"] = [region_type]*nb_rows #create new column...
     #variable_name = "temp" #set up at the beginning
-    df_val.to_csv("df_zonal_combined_"+variable_name+"_"+out_suffix+".csv")
+    df_val.to_csv("df_zonal_combined_"+region_name+"_"+variable_name+"_"+out_suffix+".csv")
     df_val.ix[1:10,] #print first 10 rows with columns name for quick check
     df_val["value"].describe() #summary values and range for checking output...
-
 
     ############ Summarize Housing density and population data ####################
 
     #ser00_housing_clipped_projected_06042014.tif
-    lf_var_pop = glob.glob(os.path.join(out_dir,"*pop_clipped_projected*.tif"))
-    lf_var_hou = glob.glob(os.path.join(out_dir,"*housing_clipped_projected*.tif"))
-    lf_var_hist_temp = glob.glob(os.path.join(out_dir,"*me_hist_*_clipped_projected*.tif"))
+    lf_var_pop = glob.glob(os.path.join(out_dir,"*pop_clipped_projected*masked*.tif"))
+    lf_var_hou = glob.glob(os.path.join(out_dir,"*housing_clipped_projected*masked*.tif"))
+    lf_var_hist_temp = glob.glob(os.path.join(out_dir,"*me_hist_*_clipped_projected*masked*.tif"))
     lf_var = lf_var_pop + lf_var_hou + lf_var_hist_temp
       
 #['/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser00_pop_clipped_projected_06042014.tif',
@@ -757,7 +761,7 @@ def main():
  #'/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser90_housing_clipped_projected_06042014.tif',
  #'/ssi-dss-data/DSS_SSI_data/output_data_06042014/ser00_housing_clipped_projected_06042014.tif']
     
-    Ser_var_name = pd.Series(["ser_pop_2000","ser_pop_2010","ser_pop_1990","ses_pop_2000",
+    type_var_name = pd.Series(["ser_pop_2000","ser_pop_2010","ser_pop_1990","ses_pop_2000",
                               "ser_housing_2000","ser_housing_2010","ser_housing_1990",
                               "hist_tmin","hist_tmean","hist_tmax"])
             
@@ -780,7 +784,7 @@ def main():
 
     for i in range(0,len(lf_rast_fname)):
     #for i in range(0,2):
-        var_name = Ser_var_name[i]
+        var_name = type_var_name[i]
         out_suffix_s = var_name + "_"+out_suffix
         #test, test_df = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
         rows,df = caculate_zonal_statistics(i,out_dir,out_suffix_s,lf_rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,var_name,tile_size)
@@ -788,11 +792,11 @@ def main():
         list_rows_var.append(rows) #add object rows to list
         
     ##Write out rows
-    fname = "list_rows_"+variable_name+"_"+out_suffix+".dat"
+    fname = "list_rows_"+region_name+"_"+variable_name+"_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_rows_var,fname)
     ##Write out dataframe
-    fname = "list_df_"+variable_name+"_"+out_suffix+".dat"
+    fname = "list_df_"+region_name+"_"+variable_name+"_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
     save_data(list_df_var,fname)
 
@@ -807,7 +811,7 @@ def main():
     df_val.columns = ["Name","value","valueType"] #rename columns 
     df_val["type"] = [region_type]*nb_rows #create new column...
     #variable_name = "temp" #set up at the beginning
-    df_val.to_csv("df_zonal_combined_"+variable_name+"_"+out_suffix+".csv")
+    df_val.to_csv("df_zonal_combined_"+region_name+"_"+variable_name+"_"+out_suffix+".csv")
     df_val.ix[1:10,] #print first 10 rows with columns name for quick check
     df_val["value"].describe() #summary values and range for checking output...
     
