@@ -19,7 +19,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 06/11/2014
+# Updated on: 06/24/2014
 # Project: DSS-SSI
 #
 ####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
@@ -386,76 +386,6 @@ def create_raster_mask(in_file,out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_
     
     return out_file
 
-def apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val= -9999,EPSG_code=None,out_file=None):
-    #This functions creates an mask from an input raster.
-    #ALl values that are not NA will be reclassified as 1 and all other as NA.
-    #this function will be improve later on...  
-      
-    NA_flag_val_str = str(NA_flag_val)
-    #NA_flag_val_in = getNoDataValue(in_file) #get no data val from file...
-    if out_file==None:
-        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_masked_"+out_suffix_s+file_format
-        out_file = os.path.join(out_dir,out_file)
-        
-    #out_suffix_s = "_masked_"+out_suffix
-    #out_file = lf_temp[i]
-    #in_file = lf_temp[i]
-    #mask_file = mask_rast_file
-    out_file = out_file.replace(out_suffix,out_suffix_s) #remove the suffix if it is there in the file name
-        
-    if EPSG_code!=None:
-        #d
-        #d
-        tmp_file = "tmp.tif"
-        src_dataset = in_file
-        dst_dataset = tmp_file
-        CRS_src = "EPSG:"+EPSG_code
-        cmd_str = "".join(["gdal_translate",
-                              # " "+"-projwin"+" "+w_extent,
-                            " "+"-a_srs"+" '"+CRS_src+"'",
-                            " -a_nodata "+NA_flag_val_str,
-                            " "+src_dataset, 
-                            " "+dst_dataset])            
-        os.system(cmd_str)
-        in_file=tmp_file
-       #
-        tmp_mask_file = "tmp_mask.tif"
-        src_dataset = mask_file
-        dst_dataset = tmp_mask_file
-        CRS_src = "EPSG:"+EPSG_code
-        cmd_str = "".join(["gdal_translate",
-                              # " "+"-projwin"+" "+w_extent,
-                            " "+"-a_srs"+" '"+CRS_src+"'",
-                            " -a_nodata "+NA_flag_val_str,
-                            " "+src_dataset, 
-                            " "+dst_dataset])            
-        os.system(cmd_str)
-        mask_file=tmp_mask_file
-       
-    #additional options later on...
-    #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]   
-    #mask_file =lf_temp[2]
-    #out_file="test.tif
-    #cmdStr = ['gdal_calc.py',
-    #              '-A',mask_file,
-    #              "--outfile="+out_file,
-    #              "--calc=1*(A*1)",
-    #              "--NoDataValue="+NA_flag_val_str]
-    #out = subprocess.call(cmdStr)
-    out_file = os.path.basename(out_file)
-    #cmdStr = ['gdal_calc.py','-A',in_file,'-B',mask_file,"--outfile="+out_file,"--calc=1*(A*B)","--NoDataValue="+NA_flag_val_str]
-    #cmdStr = ['gdal_calc.py','-A',in_file,'-B',mask_file,"--outfile="+out_file,"--calc="+"'(A*B)'","--NoDataValue="+NA_flag_val_str]
-    #out = subprocess.call(cmdStr)
-    #out = subprocess.call(cmdStr)
-    cmd_str = "".join(["gdal_calc.py",
-                              # " "+"-projwin"+" "+w_extent,
-                            " "+"-A "+in_file,
-                            " "+"-B "+"tmp_mask.tif",
-                            " --outfile="+out_file,
-                            " --calc="+"'(A*B)'"])       
-    os.system(cmd_str)
-    
-    return out_file
     
 def change_resolution_raster(in_file,res_xy_val,out_suffix_s,out_dir,file_format,output_type=None,NA_flag_val=-9999,out_file=None,resamp_opt="near"):
     #basic command: gdalwarp -tr 10 10 input.tif output.tif
@@ -699,6 +629,138 @@ def calculate_raster_stat(rasterfn,generate_xml=False):
 #if 
 #rast_fname, to create an array not read in memory use memmap (memory mapping)!!!!!
 #img = np.memmap(rast_fname, dtype=np.float32, shape=(19913, 15583))
+
+def apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val= -9999,EPSG_code=None,out_file=None,mask_shp=None):
+    #This functions creates an mask from an input raster.
+    #ALl values that are not NA will be reclassified as 1 and all other as NA.
+    #this function will be improve later on...  
+      
+    NA_flag_val_str = str(NA_flag_val)
+    #NA_flag_val_in = getNoDataValue(in_file) #get no data val from file...
+    if out_file==None:
+        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_masked_"+out_suffix_s+file_format
+        out_file = os.path.join(out_dir,out_file)
+        
+    #out_suffix_s = "_masked_"+out_suffix
+    #out_file = lf_temp[i]
+    #in_file = lf_temp[i]
+    #mask_file = mask_rast_file
+    #out_file = out_file.replace(out_suffix,out_suffix_s) #remove the suffix if it is there in the file name
+        
+    if EPSG_code!=None:
+        #d
+        #d
+        tmp_file = "tmp.tif"
+        src_dataset = in_file
+        dst_dataset = tmp_file
+        CRS_src = "EPSG:"+EPSG_code
+        cmd_str = "".join(["gdal_translate",
+                              # " "+"-projwin"+" "+w_extent,
+                            " "+"-a_srs"+" '"+CRS_src+"'",
+                            #" -a_nodata "+NA_flag_val_str,#problem with no data assignment!! again...fix later
+                            " "+src_dataset, 
+                            " "+dst_dataset])            
+        os.system(cmd_str)
+        in_file_to_mask = tmp_file
+       #
+        tmp_mask_file = "tmp_mask.tif"
+        src_dataset = mask_file
+        dst_dataset = tmp_mask_file
+        CRS_src = "EPSG:"+EPSG_code
+        cmd_str = "".join(["gdal_translate",
+                              # " "+"-projwin"+" "+w_extent,
+                            " "+"-a_srs"+" '"+CRS_src+"'",
+                            #" -a_nodata "+NA_flag_val_str,
+                            " "+src_dataset, 
+                            " "+dst_dataset])            
+        os.system(cmd_str)
+        mask_file=tmp_mask_file
+       
+    #additional options later on...
+    #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]   
+    #mask_file =lf_temp[2]
+    #out_file="test.tif
+    #cmdStr = ['gdal_calc.py',
+    #              '-A',mask_file,
+    #              "--outfile="+out_file,
+    #              "--calc=1*(A*1)",
+    #              "--NoDataValue="+NA_flag_val_str]
+    #out = subprocess.call(cmdStr)
+    out_file = os.path.basename(out_file)
+    #cmdStr = ['gdal_calc.py','-A',in_file,'-B',mask_file,"--outfile="+out_file,"--calc=1*(A*B)","--NoDataValue="+NA_flag_val_str]
+    #cmdStr = ['gdal_calc.py','-A',in_file,'-B',mask_file,"--outfile="+out_file,"--calc="+"'(A*B)'","--NoDataValue="+NA_flag_val_str]
+    #out = subprocess.call(cmdStr)
+    #out = subprocess.call(cmdStr)
+    if (mask_shp==None):
+        cmd_str = "".join(["gdal_calc.py",
+                              # " "+"-projwin"+" "+w_extent,
+                            " "+"-A "+in_file_to_mask,
+                            " "+"-B "+"tmp_mask.tif",
+                            " --outfile="+out_file,
+                            " --calc="+"'1*(A*B)'"])       
+    if (mask_shp!=None):
+        cmd_str = "".join(["gdalwarp",
+                           " -cutline "+mask_shp ,
+                           " -overwrite ",
+                           " -dstnodata ",NA_flag_val_str,
+                           " ",in_file_to_mask,
+                           " ",out_file])       
+                                 
+    #cmd_str = "".join(["gdal_calc.py",
+    #                          # " "+"-projwin"+" "+w_extent,
+    #                        " "+"-A "+in_file_to_mask,
+    #                        " "+"-B "+"tmp_mask.tif",
+    #                        " --outfile="+out_file,
+    #                        " --calc="+"'1*(A*B)'",
+    #                        "--NoDataValue="+NA_flag_val_str])       
+    os.system(cmd_str)
+    
+    return out_file
+
+def mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file,mask_shp=None):
+    #region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched,NA_flag_val,out_file)
+    #out_suffix_reg = "reg900_"+out_suffix #the region file projected in the defined projection
+    #out_suffix_reg = "reg900_"+out_suffix #the region file projected in the defined projection
+
+    #w_extent_reg, reg_area_poly_projected = calculate_region_extent(shp_fname,out_suffix_reg,CRS_reg,out_dir)
+
+    #first create mask from region definition:
+    in_vect = reg_area_poly_projected
+    
+    in_rast = lf_var[0]
+    out_file = "region_ref_rast"+out_suffix_reg+file_format
+    NA_flag_val = getNoDataValue(in_rast)
+    region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix,att_field,file_format,output_type,all_touched,NA_flag_val,CRS_reg,out_file)
+
+    # now either reclass or apply directly the mask
+    #This functions creates an mask from an input raster.
+    #ALl values that are not NA will be reclassified as 1 and all other as NA.
+    #this function will be improve later on...  
+
+    in_file = region_rast_fname
+    out_file = "mask_regions_"+out_suffix_reg+file_format
+    #mask_rast_file = create_raster_mask(in_file,ouout_dir,out_suffix_s,file_format,NA_flag_val,out_file)
+    mask_rast_file = create_raster_mask(in_file,out_dir,out_suffix_reg,file_format,CRS_reg,NA_flag_val,out_file)
+    
+    #problem with the mask does not contain full
+    lf_var_masked = []
+    
+    for i in range(0,len(lf_var)):
+        out_file = lf_var[i]
+        in_file = lf_var[i]
+        mask_file = mask_rast_file
+        out_suffix_s = "_masked_"+out_suffix_reg
+
+        out_file = out_file.replace(out_suffix_reg,out_suffix_s) #remove the suffix if it is there in the file name
+        
+        #f_masked = apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,out_file,EPSG_code)
+        f_masked = apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,EPSG_code,out_file,mask_shp)
+        #f_masked = pdb.runcall(apply_raster_mask,in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,out_file,EPSG_code)
+        lf_var_masked.append(f_masked)
+        #Now get stat
+    
+    ## End of future function
+    return lf_var_masked
 
 #######################################################################
 ######################### BEGIN SCRIPT  ###############################
@@ -1122,141 +1184,12 @@ def main():
     EPSG_code="26919"
     lf_var = outfile_list[0:7]
     mask_shp=in_vect #Use gdal warp cutline option rather than gdalcalc if not null!! (used to resolve the problem with Float64???)
+    lf_var_masked = mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file,mask_shp)
+
+    lf_var = outfile_list[7:12]
+    mask_shp=in_vect #Use gdal warp cutline option rather than gdalcalc if not null!! (used to resolve the problem with Float64???)
     lf_var_masked = mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file)
     
-    def mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file,mask_shp=None):
-        #region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched,NA_flag_val,out_file)
-        #out_suffix_reg = "reg900_"+out_suffix #the region file projected in the defined projection
-        #out_suffix_reg = "reg900_"+out_suffix #the region file projected in the defined projection
-    
-        #w_extent_reg, reg_area_poly_projected = calculate_region_extent(shp_fname,out_suffix_reg,CRS_reg,out_dir)
-    
-        #first create mask from region definition:
-        in_vect = reg_area_poly_projected
-        
-        in_rast = lf_var[0]
-        out_file = "region_ref_rast"+out_suffix_reg+file_format
-        NA_flag_val = getNoDataValue(in_rast)
-        region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix,att_field,file_format,output_type,all_touched,NA_flag_val,CRS_reg,out_file)
-    
-        # now either reclass or apply directly the mask
-        #This functions creates an mask from an input raster.
-        #ALl values that are not NA will be reclassified as 1 and all other as NA.
-        #this function will be improve later on...  
-    
-        in_file = region_rast_fname
-        out_file = "mask_regions_"+out_suffix_reg+file_format
-        #mask_rast_file = create_raster_mask(in_file,ouout_dir,out_suffix_s,file_format,NA_flag_val,out_file)
-        mask_rast_file = create_raster_mask(in_file,out_dir,out_suffix_reg,file_format,CRS_reg,NA_flag_val,out_file)
-        
-        #problem with the mask does not contain full
-        lf_var_masked = []
-        
-        for i in range(0,len(lf_var)):
-            out_file = lf_var[i]
-            in_file = lf_var[i]
-            mask_file = mask_rast_file
-            out_suffix_s = "_masked_"+out_suffix_reg
-
-            out_file = out_file.replace(out_suffix_reg,out_suffix_s) #remove the suffix if it is there in the file name
-            
-            #f_masked = apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,out_file,EPSG_code)
-            f_masked = apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,EPSG_code,out_file,mask_shp)
-            #f_masked = pdb.runcall(apply_raster_mask,in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,out_file,EPSG_code)
-            lf_var_masked.append(f_masked)
-            #Now get stat
-        
-        ## End of future function
-        return lf_var_masked
-        
-def apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val= -9999,EPSG_code=None,out_file=None,mask_shp=None):
-    #This functions creates an mask from an input raster.
-    #ALl values that are not NA will be reclassified as 1 and all other as NA.
-    #this function will be improve later on...  
-      
-    NA_flag_val_str = str(NA_flag_val)
-    #NA_flag_val_in = getNoDataValue(in_file) #get no data val from file...
-    if out_file==None:
-        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_masked_"+out_suffix_s+file_format
-        out_file = os.path.join(out_dir,out_file)
-        
-    #out_suffix_s = "_masked_"+out_suffix
-    #out_file = lf_temp[i]
-    #in_file = lf_temp[i]
-    #mask_file = mask_rast_file
-    #out_file = out_file.replace(out_suffix,out_suffix_s) #remove the suffix if it is there in the file name
-        
-    if EPSG_code!=None:
-        #d
-        #d
-        tmp_file = "tmp.tif"
-        src_dataset = in_file
-        dst_dataset = tmp_file
-        CRS_src = "EPSG:"+EPSG_code
-        cmd_str = "".join(["gdal_translate",
-                              # " "+"-projwin"+" "+w_extent,
-                            " "+"-a_srs"+" '"+CRS_src+"'",
-                            #" -a_nodata "+NA_flag_val_str,#problem with no data assignment!! again...fix later
-                            " "+src_dataset, 
-                            " "+dst_dataset])            
-        os.system(cmd_str)
-        in_file_to_mask = tmp_file
-       #
-        tmp_mask_file = "tmp_mask.tif"
-        src_dataset = mask_file
-        dst_dataset = tmp_mask_file
-        CRS_src = "EPSG:"+EPSG_code
-        cmd_str = "".join(["gdal_translate",
-                              # " "+"-projwin"+" "+w_extent,
-                            " "+"-a_srs"+" '"+CRS_src+"'",
-                            #" -a_nodata "+NA_flag_val_str,
-                            " "+src_dataset, 
-                            " "+dst_dataset])            
-        os.system(cmd_str)
-        mask_file=tmp_mask_file
-       
-    #additional options later on...
-    #cmdStr = ['gdal_calc.py','-A',in_file,"--outfile="+"ncld_rec11.tif","--calc="+"11*(A==11)","--NoDataValue="+"0"]   
-    #mask_file =lf_temp[2]
-    #out_file="test.tif
-    #cmdStr = ['gdal_calc.py',
-    #              '-A',mask_file,
-    #              "--outfile="+out_file,
-    #              "--calc=1*(A*1)",
-    #              "--NoDataValue="+NA_flag_val_str]
-    #out = subprocess.call(cmdStr)
-    out_file = os.path.basename(out_file)
-    #cmdStr = ['gdal_calc.py','-A',in_file,'-B',mask_file,"--outfile="+out_file,"--calc=1*(A*B)","--NoDataValue="+NA_flag_val_str]
-    #cmdStr = ['gdal_calc.py','-A',in_file,'-B',mask_file,"--outfile="+out_file,"--calc="+"'(A*B)'","--NoDataValue="+NA_flag_val_str]
-    #out = subprocess.call(cmdStr)
-    #out = subprocess.call(cmdStr)
-    if (mask_shp==None):
-        cmd_str = "".join(["gdal_calc.py",
-                              # " "+"-projwin"+" "+w_extent,
-                            " "+"-A "+in_file_to_mask,
-                            " "+"-B "+"tmp_mask.tif",
-                            " --outfile="+out_file,
-                            " --calc="+"'1*(A*B)'"])       
-    if (mask_shp!=None):
-        cmd_str = "".join(["gdalwarp",
-                           " -cutline "+mask_shp ,
-                           " -overwrite ",
-                           " -dstnodata ",NA_flag_val_str,
-                           " ",in_file_to_mask,
-                           " ",out_file])       
-                                 
-    #cmd_str = "".join(["gdal_calc.py",
-    #                          # " "+"-projwin"+" "+w_extent,
-    #                        " "+"-A "+in_file_to_mask,
-    #                        " "+"-B "+"tmp_mask.tif",
-    #                        " --outfile="+out_file,
-    #                        " --calc="+"'1*(A*B)'",
-    #                        "--NoDataValue="+NA_flag_val_str])       
-    os.system(cmd_str)
-    
-    return out_file
-
-
     return None
     
 #Need to add this to run
@@ -1276,7 +1209,7 @@ if __name__ == '__main__':
 #os.system("gdalsrsinfo -o proj4 /ssi-dss-data/DSS_SSI_data/ser90_housing.tif")
 #'+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs '
 #This is not matching the aea description assigned!!!
-os.system("gdal_calc.py -A tmp.tif -B tmp_mask.tif --outfile=test44.tif --calc='1*(A*B)'")       
-os.system("gdalwarp -cutline ../county2406042014.shp -overwrite -dstnodata -1.79769313486e+308 tmp.tif test55.tif")       
+#os.system("gdal_calc.py -A tmp.tif -B tmp_mask.tif --outfile=test44.tif --calc='1*(A*B)'")       
+#os.system("gdalwarp -cutline ../county2406042014.shp -overwrite -dstnodata -1.79769313486e+308 tmp.tif test55.tif")       
 
 ################# End of script ################# 
