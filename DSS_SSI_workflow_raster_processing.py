@@ -19,7 +19,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 06/24/2014
+# Updated on: 06/25/2014
 # Project: DSS-SSI
 #
 ####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
@@ -762,6 +762,120 @@ def mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,
     ## End of future function
     return lf_var_masked
 
+## This is a function that reads multiple rows in a list of raster files...
+def read_multiple_rows_raster_stack( lf_raster, nb_rows, band_nb=1, merge=True):
+        
+    ##First create a list
+    list_data =[]
+    for j in range(0,len(lf_raster)):
+        in_raster = lf_raster[j] #this may need to be modified for 
+        ds = gdal.Open(in_raster)
+        nrow = ds.RasterYSize
+        ncol =ds.RasterXSize                
+        band = ds.GetRasterBand(band_nb)
+        data_type = gdal.GetDataTypeName(band.DataType)
+        block_sizes = band.GetBlockSize()  #this is equal to number of rows in a Geo
+        no_data_val = band.GetNoDataValue()
+        data = band.ReadAsArray(0,nb_rows,ncol,1) #read by row and place in a buffer array   #make a function to read several images....?     
+        #val = np.unique(data)
+        #list_data.append(data)
+        #data = band.ReadAsArray(0,1,i,ncol)
+        band=None #close file
+        ds=None  #close file
+        list_data.append(data)
+        
+    if merge==True:
+        data_val = np.vstack(list_data)
+    if merge==False:
+        data_val = list_data
+        
+    return data_val
+
+### Create an easy function to write in raster file...    
+
+def calculate_mean_raster(lf_raster,stat="mean",out_file,band_nb=1):
+    #Function  uses the classic approach for large raster images...ie. read by chunk
+    #and process rows by rows simiar to IDRISI delphi code.
+    #in_raster = "county24reg_06042014_rast_06042014.tif"
+    #in_raster = "nlcd2006_landcover_4-20-11_se5_clipped_projected_06042014.tif"
+    in_raster = lf_raster[0]
+    ds = gdal.Open(in_raster)
+    nrow = ds.RasterYSize
+    ncol = ds.RasterXSize        
+    NA_flag_val = getNoDataValue(in_rast) #this assumes that all layers have the same NA        
+
+    #Now create out raster:
+    #http://geoinformaticstutorial.blogspot.com/2012/09/writing-raster-data-with-python-gdal.html
+    #I want to use the same size from the input file which is in "dataset" as in the previous post  
+    cols = ds.RasterXSize
+    rows = ds.RasterYSize
+    bands = ds.RasterCount
+    band = ds.GetRasterBand(1)
+    datatype = band.DataType
+    driver = gdal.GetDriverByName("GTiff")
+    outDataset = driver.Create(out_file, cols, rows, 1, datatype) #1 for band 1
+    
+    #I want my outputfile to have the same georeferencing and projection information as the input file (the "0" shows the execution went fine):
+    geoTransform = ds.GetGeoTransform()
+    outDataset.SetGeoTransform(geoTransform )
+ 
+    proj = ds.GetProjection()
+    outDataset.SetProjection(proj)
+
+    #That has to be assigned before writing the data to the output band, otherwise it's not in the file!
+    #Before writing the data, I have to get the band from the newly created file:
+
+    outBand = outDataset.GetRasterBand(1)
+    
+
+    for i in range (0,nrow):
+        #data = band.ReadAsArray(0,i,nrow,1)
+        #data = band.ReadAsArray(0,1,i,ncol)
+        #data = band.ReadAsArray(1,0,1,ncol) #read first row  
+        ## read all band row....
+        nb_rows = i        
+        data = read_multiple_rows_raster_stack(lf_raster, nb_rows, band_nb=1, merge=True)
+        #data_NA = data.copy
+        data_NA = np.where(data==NA_flag_val,0,1)
+        #data_mask = np.ma.masked_values(data, NA_flag_val)
+        data_val=data*data_NA
+        
+        data_out = data_val.sum(axis=0)/data_NA.sum(axis=0)
+        data_out = data_out*data_NA[0]        
+        #data_out = np.where(data_out= -inf,NA_flag_val)        
+        # Open data
+        #raster = gdal.Open(input_value_raster)
+
+        #data = band.ReadAsArray(0,nb_rows,ncol,1) #read by row and place in a buffer array   #make a function to read several images....?     
+        #outBand.WriteArray(outData, 0, 0)
+        outBand.WriteArray(data_out, i,ncol)
+    
+    
+    # flush data to disk, set the NoData value and calculate stats
+    outBand.FlushCache()
+    outBand.SetNoDataValue(NA_flag_val)
+
+    #clean variables and close files
+    outBand = None
+    outDataset = None 
+
+    band = None
+    ds = None
+    
+    return out_file
+
+
+#img = np.memmap(rast_fname, dtype=np.float32, shape=(19913, 15583))? could be an alternative using
+#memory mapping for large numpy array??
+#ar = numpy.zeros((nrow,ncol),dtype=data_type) #data type 'Byte' not understood
+#ar = np.zeros((nrow,ncol))
+#ar = np.array(band.ReadAsArray()) #reading everythin in memory!!! needs to be changed!!!
+#ar = band.ReadAsArray() #reading everythin in memory!!! needs to be changed!!!
+#values = np.unique(ar)
+#values = np.array(unique_val)
+#values = np.where(values!= no_data_val)
+# Create the destination data source
+
 #######################################################################
 ######################### BEGIN SCRIPT  ###############################
 #--------------------------------------------
@@ -790,7 +904,7 @@ def main():
     #http://spatialreference.org/ref/epsg/2037    
     #CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
     CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs" #using EPSG 26919
-    CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
+    #CRS_reg = "+proj=utm +zone=19 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
 
     CRS_aea = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
     CRS_WGS84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
@@ -798,7 +912,7 @@ def main():
     file_format = ".tif"
     NA_flag_val = -9999
     output_type = "Float32"
-    out_suffix = "06042014"
+    out_suffix = "06252014"
     w_extent_str = "-72 48 -65 41" #minx,maxy (upper left), maxx,miny (lower right)
     use_reg_extent = True
     os.chdir(in_dir)
@@ -873,58 +987,78 @@ def main():
             #outfile = create_raster_region(j,in_dir,infile_l_f,CRS_src,CRS_dst,file_format,
             #                      out_suffix_reg,out_dir,w_extent,NA_flag_val,output_type,clip_param=True,reproject_param=True)
             outfile = create_raster_region(j,in_dir,infile_l_f,CRS_dst,file_format,
-                                  out_suffix,out_dir,w_extent,CRS_src,NA_flag_val=None,output_type=None,clip_param=True,reproject_param=True)
+                                  out_suffix_reg,out_dir,w_extent,CRS_src,NA_flag_val=None,output_type=None,clip_param=True,reproject_param=True)
 
 
     #lf_temp = glob.glob(*)
     #fileglob_pattern = "*projected*ncar*.tif"
     #pathglob = os.path.join(out_dir, fileglob_pattern)
-    lf_temp = glob.glob(os.path.join(out_dir, "*projected*ncar*.tif")) #this contains the raster variable files that need to be summarized
+    lf_temp = glob.glob(os.path.join(out_dir, "*projected*ncar*"+"2_5min_no_tile_asc"+out_suffix+".tif")) #this contains the raster variable files that need to be summarized
     lf_temp.sort()
     
-    #Now Apply mask :line
-     
-    out_suffix_reg = "reg_"+out_suffix #the region file projected in the defined projectio 
-    w_extent_reg, reg_area_poly_projected = calculate_region_extent(shp_fname,out_suffix_reg,CRS_reg,out_dir)
-    
+   #last step...recalculate stat?? maybe also put in the mask function...
+    ######## JUST ADDED ON 0625
     #first create mask from region definition:
-    in_vect=reg_area_poly_projected
-    in_rast=lf_temp[0]
+    out_suffix_reg = out_suffix #the region file projected in the defined projectio 
+    w_extent_reg, reg_area_poly_projected = calculate_region_extent(shp_fname,out_suffix_reg,CRS_reg,out_dir)
+
+    in_vect = reg_area_poly_projected #name of the shape file if n
+    #in_rast = outfile_list
     #out_suffix_s
+    #att_field="GEOCODENUM" #that is for towns
     att_field="CNTYCODE"
+
     #file_format
     output_type="Float32"
-    all_touched=True
-    #NA_flag_val= -9999
-    out_file=None
-        
-    #region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched,NA_flag_val,out_file)
-    region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix,att_field,file_format,output_type,all_touched,NA_flag_val,CRS_reg,out_file)
-
-    # now either reclass or apply directly the mask
-    #This functions creates an mask from an input raster.
-    #ALl values that are not NA will be reclassified as 1 and all other as NA.
-    #this function will be improve later on...  
-
-    in_file = region_rast_fname
-    out_file = "mask_regions_"+out_suffix+file_format
-    #mask_rast_file = create_raster_mask(in_file,ouout_dir,out_suffix_s,file_format,NA_flag_val,out_file)
-    mask_rast_file = create_raster_mask(in_file,out_dir,out_suffix,file_format,CRS_reg,NA_flag_val,out_file)
+    #output_type="Float64"
     
-    #problem with the mask does not contain full
-    lf_temp_masked = []
-    for i in range(0,len(lf_temp)):
-        out_suffix_s = "_masked_"+out_suffix
-        out_file = lf_temp[i]
-        in_file = lf_temp[i]
-        mask_file = mask_rast_file
-        out_file = out_file.replace(out_suffix,out_suffix_s) #remove the suffix if it is there in the file name
-        f_masked = apply_raster_mask(in_file,mask_file,out_dir,out_suffix_s,file_format,NA_flag_val,out_file)
-        lf_temp_masked.append(f_masked)
-        #Now get stat
-        
-    #last step...recalculate stat?? maybe also put in the mask function...
+    all_touched=True
+    NA_flag_val= -9999
+    out_file = None
+    EPSG_code="26919"
+    lf_var = lf_temp
+    #mask_shp=in_vect #Use gdal warp cutline option rather than gdalcalc if not null!! (used to resolve the problem with Float64???)
+    #lf_var_masked = mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file,mask_shp)
+    lf_var_masked = mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file)
 
+    ######## JUST ADDED ON 0625 ###
+    #Now calculate overall averages and add stat+ projection
+    
+    #Create this in  loop at a later stage...clean this up
+
+    lf_temp_ncar_periods_dict = {
+    "lf_tmin_20":(filter(lambda x: re.search(r'tmin_.*.2020',x),lf_var_masked)),       
+    "lf_tmin_30":(filter(lambda x: re.search(r'tmin_.*.2030',x),lf_var_masked)),
+    "lf_tmin_40":(filter(lambda x: re.search(r'tmin_.*.2040',x),lf_var_masked)),       
+    "lf_tmin_50":(filter(lambda x: re.search(r'tmin_.*.2050',x),lf_var_masked)),
+    "lf_tmax_20":(filter(lambda x: re.search(r'tmax_.*.2020',x),lf_var_masked)),       
+    "lf_tmax_30":(filter(lambda x: re.search(r'tmax_.*.2030',x),lf_var_masked)),
+    "lf_tmax_40":(filter(lambda x: re.search(r'tmax_.*.2040',x),lf_var_masked)),       
+    "lf_tmax_50":(filter(lambda x: re.search(r'tmax_.*.2050',x),lf_var_masked)),
+    "lf_tmean_20":(filter(lambda x: re.search(r'tmean_.*.2020',x),lf_var_masked)),       
+    "lf_tmean_30":(filter(lambda x: re.search(r'tmean_.*.2030',x),lf_var_masked)),
+    "lf_tmean_40":(filter(lambda x: re.search(r'tmean_.*.2040',x),lf_var_masked)),       
+    "lf_tmean_50":(filter(lambda x: re.search(r'tmean_.*.2050',x),lf_var_masked))}
+
+    for j in range(0,len(l_f_nlcd)):
+        var_name = lf_temp_ncar_periods_dict.keys()[j]
+        lf_raster = lf_temp_ncar_periods_dict.values()[j]
+        out_file = var_name+"_" + out_suffix+file_format
+        operation = "+"
+        lf_mean_raster(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= NA_flag_val,out_file="sum45.tif")
+    def lf_mean_raster(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= NA_flag_val,out_file="sum45.tif"):
+        r_sum =raster_calc_operation_on_list(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= NA_flag_val,out_file="sum44.tif")
+        nb=str(len(lf_raster))
+        NA_flag_val_str = str(NA_flag_val)
+        cmdStr = ['gdal_calc.py',
+                  '-A',r_sum,
+                  "--outfile="+out_file,
+                  "--calc=1*(A*"+nb+")",
+                  "--NoDataValue="+NA_flag_val_str,
+                  "--overwrite"]
+       out = subprocess.call(cmdStr)
+    return out_file
+        
     ##################################################    
     ##### PART II: PROCESSING LAND COVER  ##########
         
@@ -974,9 +1108,6 @@ def main():
         outfile_breakout_nlcd = breakout_raster_categories(outfile,out_dir,out_suffix,unique_val,file_format,NA_flag_val= -9999,boolean=True)
         outfile_breakout_list.append(outfile_breakout_nlcd)
         
-
-
-
     #nlcd92mosaic_clipped_projected_05152014_rec_0_05152014    
     #outfile_breakout_list = []
     #outfile_breakout_list.append(glob.glob(os.path.join(out_dir,"*nlcd92mosaic*rec*.tif")))
@@ -1066,6 +1197,11 @@ def main():
     #NA_flag_val= -9999
     out_file=None
     EPSG_code="26919"
+    #out_file = None
+    #EPSG_code="26919"
+    #lf_var = outfile_list[0:7]
+    #mask_shp=in_vect #Use gdal warp cutline option rather than gdalcalc if not null!! (used to resolve the problem with Float64???)
+
     #region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix_s,att_field,file_format,output_type,all_touched,NA_flag_val,out_file)
     region_rast_fname = raster_to_poly_operation_on_list(in_vect,in_rast,out_suffix,att_field,file_format,output_type,all_touched,NA_flag_val,CRS_reg,out_file)
 
