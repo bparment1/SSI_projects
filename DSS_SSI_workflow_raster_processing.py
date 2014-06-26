@@ -431,7 +431,7 @@ def change_resolution_raster(in_file,res_xy_val,out_suffix_s,out_dir,file_format
     
     return out_file             
 
-def raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= -9999,out_file=None):
+def raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,out_file=None,operation="+",NA_flag_val= -9999):
             
     ### Add loop here
     l_out_file = []
@@ -453,7 +453,8 @@ def raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,operat
                   '-A',in_file_1,
                   "--outfile="+file_combined,
                   "--calc=1*(A*0)",
-                  "--NoDataValue="+NA_flag_val_str]
+                  "--NoDataValue="+NA_flag_val_str,
+                  "--overwrite"]
     out = subprocess.call(cmdStr)
   
     #start at zero but length is reduced by one!!!
@@ -475,7 +476,8 @@ def raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,operat
                   '-B',in_file_2,
                   "--outfile="+out_file,
                   "--calc=1*(A"+operation+"B)",
-                  "--NoDataValue="+NA_flag_val_str]
+                  "--NoDataValue="+NA_flag_val_str,
+                  "--overwrite"]
         out = subprocess.call(cmdStr)
         file_combined = out_file
         #l_out_file.append(out_file)
@@ -792,7 +794,7 @@ def read_multiple_rows_raster_stack( lf_raster, nb_rows, band_nb=1, merge=True):
     return data_val
 
 ### Create an easy function to write in raster file...    
-
+### Function still under construction right now
 def calculate_mean_raster(lf_raster,stat="mean",out_file,band_nb=1):
     #Function  uses the classic approach for large raster images...ie. read by chunk
     #and process rows by rows simiar to IDRISI delphi code.
@@ -862,6 +864,22 @@ def calculate_mean_raster(lf_raster,stat="mean",out_file,band_nb=1):
     band = None
     ds = None
     
+    return out_file
+
+### Use this function to calculate overall mean...
+def lf_mean_raster(lf_raster,out_dir,out_suffix_s,out_file,file_format,NA_flag_val= -9999):
+    operation ="+"
+    r_sum = raster_calc_operation_on_list(lf_raster,out_dir,out_suffix_s,file_format,"tmp_sum.tif",operation="+",NA_flag_val= -9999)
+    #r_sum =raster_calc_operation_on_list(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= NA_flag_val,out_file)
+    nb=str(len(lf_raster))
+    NA_flag_val_str = str(NA_flag_val)
+    cmdStr = ['gdal_calc.py',
+                  '-A',r_sum,
+                  "--outfile="+out_file,
+                  "--calc=1*(A/"+nb+")",
+                  "--NoDataValue="+NA_flag_val_str,
+                  "--overwrite"]
+    out = subprocess.call(cmdStr)
     return out_file
 
 
@@ -1040,25 +1058,17 @@ def main():
     "lf_tmean_40":(filter(lambda x: re.search(r'tmean_.*.2040',x),lf_var_masked)),       
     "lf_tmean_50":(filter(lambda x: re.search(r'tmean_.*.2050',x),lf_var_masked))}
 
-    for j in range(0,len(l_f_nlcd)):
+    lf_temp_decadal_mean = []
+    for j in range(0,len(lf_temp_ncar_periods_dict)):
         var_name = lf_temp_ncar_periods_dict.keys()[j]
         lf_raster = lf_temp_ncar_periods_dict.values()[j]
-        out_file = var_name+"_" + out_suffix+file_format
-        operation = "+"
-        lf_mean_raster(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= NA_flag_val,out_file="sum45.tif")
-    def lf_mean_raster(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= NA_flag_val,out_file="sum45.tif"):
-        r_sum =raster_calc_operation_on_list(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= NA_flag_val,out_file="sum44.tif")
-        nb=str(len(lf_raster))
-        NA_flag_val_str = str(NA_flag_val)
-        cmdStr = ['gdal_calc.py',
-                  '-A',r_sum,
-                  "--outfile="+out_file,
-                  "--calc=1*(A*"+nb+")",
-                  "--NoDataValue="+NA_flag_val_str,
-                  "--overwrite"]
-       out = subprocess.call(cmdStr)
-    return out_file
-        
+        #out_file="test66.tif"
+        #lf_raster =['tmax_10_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc_masked_06042014.tif',
+        #             'tmax_11_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc_masked_06042014.tif']
+        out_file = var_name+"_" + out_suffix+file_format       
+        mean_rast = lf_mean_raster(lf_raster,out_dir,out_suffix_s,out_file,file_format,NA_flag_val)
+        lf_temp_decadal_mean.append(mean_rast)
+                
     ##################################################    
     ##### PART II: PROCESSING LAND COVER  ##########
         
