@@ -19,7 +19,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 06/25/2014
+# Updated on: 10/20/2014
 # Project: DSS-SSI
 #
 ####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
@@ -795,7 +795,7 @@ def read_multiple_rows_raster_stack( lf_raster, nb_rows, band_nb=1, merge=True):
 
 ### Create an easy function to write in raster file...    
 ### Function still under construction right now
-def calculate_mean_raster(lf_raster,stat="mean",out_file,band_nb=1):
+def calculate_mean_raster(lf_raster,out_file,stat="mean",band_nb=1):
     #Function  uses the classic approach for large raster images...ie. read by chunk
     #and process rows by rows simiar to IDRISI delphi code.
     #in_raster = "county24reg_06042014_rast_06042014.tif"
@@ -930,7 +930,7 @@ def main():
     file_format = ".tif"
     NA_flag_val = -9999
     output_type = "Float32"
-    out_suffix = "06252014"
+    out_suffix = "10202014"
     w_extent_str = "-72 48 -65 41" #minx,maxy (upper left), maxx,miny (lower right)
     use_reg_extent = True
     os.chdir(in_dir)
@@ -1066,7 +1066,7 @@ def main():
         #lf_raster =['tmax_10_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc_masked_06042014.tif',
         #             'tmax_11_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc_masked_06042014.tif']
         out_file = var_name+"_" + out_suffix+file_format       
-        mean_rast = lf_mean_raster(lf_raster,out_dir,out_suffix_s,out_file,file_format,NA_flag_val)
+        mean_rast = lf_mean_raster(lf_raster,out_dir,out_suffix,out_file,file_format,NA_flag_val)
         lf_temp_decadal_mean.append(mean_rast)
                 
     ##################################################    
@@ -1243,8 +1243,9 @@ def main():
     ## End of future function
     
     ###########################################################
-    ##### Now process house density ...
+    ##### PART III: Now process house density, population and historical temperature layer ...
     #dir_path = os.path.join(in_dir,"VarsFeb2014")
+
     lf_var_pop = glob.glob(os.path.join(in_dir,"se*pop.tif")) #US AEA, use none
     lf_var_hou = glob.glob(os.path.join(in_dir,"se*housing.tif")) #US AEA, use none
     lf_var_hist_temp = glob.glob(os.path.join(in_dir,"me_hist*.tif")) #Lat long EPSG 4326
@@ -1272,6 +1273,7 @@ def main():
     outfile_list = []
     
     #this can be paralellized later on...
+    #crop and reproject ...
     for j in range(0,len(f_list)):
         #d
         CRS_src = l_CRS_src[j] #source projection syst
@@ -1302,7 +1304,12 @@ def main():
         CRS_dst = l_CRS_dst[j]  #target projection syst in this case CRS reg...
  
         outfile = create_raster_region(j,in_dir,f_list,CRS_dst,file_format,
-                                  out_suffix,out_dir,w_extent,CRS_src,NA_flag_val=None,output_type=None,clip_param=True,reproject_param=True)
+                                 out_suffix,out_dir,w_extent,CRS_src,NA_flag_val=None,output_type=None,clip_param=True,reproject_param=True)
+        #outfile = create_raster_region(j,in_dir,f_list,CRS_dst,file_format,
+        #                         out_suffix,out_dir,w_extent,CRS_src,NA_flag_val=None,output_type=None,clip_param=True,reproject_param=False)
+
+        #outfile = create_raster_region(j,in_dir,f_list,CRS_dst,file_format,
+        #                          out_suffix,out_dir,w_extent,CRS_src,NA_flag_val=-1.79769e+308,output_type=None,clip_param=True,reproject_param=True)
 
         outfile_list.append(outfile)
         
@@ -1332,7 +1339,10 @@ def main():
     mask_shp=in_vect #Use gdal warp cutline option rather than gdalcalc if not null!! (used to resolve the problem with Float64???)
     lf_var_masked = mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file,mask_shp)
 
-    lf_var = outfile_list[7:12]
+    #Now historical mean temperatre...this is floating 32bits
+    output_type="Float32"
+
+    lf_var = outfile_list[7:10] #selecte historical temp files
     mask_shp=in_vect #Use gdal warp cutline option rather than gdalcalc if not null!! (used to resolve the problem with Float64???)
     lf_var_masked = mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file)
     
