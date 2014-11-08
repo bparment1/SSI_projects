@@ -961,13 +961,6 @@ def reclass_layer(i,lf_raster,out_dir,out_suffix_s,file_format,in_val,out_file=N
    out = subprocess.call(cmdStr)
    return out_file   
 
-#gdal_calc.py -A input.tif --outfile=result.tif --calc="A*(A>0)" --NoDataValue=0
-lf_raster = ["ser10_pop_Int32_clipped_projected_10202014_NA_assigned_ser_pop_2000_10202014_NA_assigned_ser_pop_2010_10202014.tif"]
-tmp1=reclass_layer(1,lf_raster,out_dir,out_suffix_s,file_format,in_val=0,out_file="test_rec1.tif",operator="<",out_val=-2147483647) 
-tmp2=reclass_layer(1,lf_raster,out_dir,out_suffix_s,file_format,in_val=0,out_file="test_rec2.tif",operator="==",out_val=1) 
-tmp3=raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,out_file=None,operation="*",NA_flag_val= -2147483647)
-   
-    
 #img = np.memmap(rast_fname, dtype=np.float32, shape=(19913, 15583))? could be an alternative using
 #memory mapping for large numpy array??
 #ar = numpy.zeros((nrow,ncol),dtype=data_type) #data type 'Byte' not understood
@@ -1331,17 +1324,22 @@ def main():
     ##### PART III: Now process house density, population and historical temperature layer ...
     #dir_path = os.path.join(in_dir,"VarsFeb2014")
 
-    lf_var_pop = glob.glob(os.path.join(in_dir,"se*pop.tif")) #US AEA, use none
+    #lf_var_pop = glob.glob(os.path.join(in_dir,"se*pop.tif")) #US AEA, use none
     lf_var_pop = glob.glob(os.path.join(in_dir,"se*pop_Int32.tif")) #US AEA, use none
     
-    lf_var_hou = glob.glob(os.path.join(in_dir,"se*housing.tif")) #US AEA, use none
+    lf_var_hou = glob.glob(os.path.join(in_dir,"se*housing_Int32.tif")) #US AEA, use none
+    
+    os.system("gdal_translate -ot Int32 -of GTiff ../ser10_housing.tif ../ser10_housing_Int32.tif")
+
     lf_var_hist_temp = glob.glob(os.path.join(in_dir,"me_hist*.tif")) #Lat long EPSG 4326
+    
     lf_var = lf_var_pop + lf_var_hou + lf_var_hist_temp
 
     #l_CRS_dst[j]
     l_CRS_dst=  [CRS_reg]*len(lf_var)
     l_CRS_src = ['+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs ']*(len(lf_var)-len(lf_var_hist_temp))
     l_CRS_src = l_CRS_src + [CRS_WGS84]*len(lf_var_hist_temp)
+
 
     #out_dir
     #in_dir 
@@ -1403,8 +1401,31 @@ def main():
 
     #### Start of future function
     #Now Apply mask :line, make this a function...
+
+    #First deal with NA values...
+    l_CRS_src = l_CRS_src + [CRS_WGS84]*len(lf_var_hist_temp)
+    l_NA_flag_val = [-2147483647]*6
+    in_file_subset = outfile_list[0:6]
+    out_file_subset = [] 
+    for j in range(0,len(in_file_subset)):
+        in_file = in_file_subset[j]
+        #in_file= "ser10_pop32.tif"
+        CRS_reg=l_CRS_src[j] 
+        NA_flag_val = l_NA_flag_val[j]
+        out_suffix_s = out_suffix
+        infile_NA = assign_no_data_value(in_file,out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_val= NA_flag_val,out_file=None)
+        #assign_no_data_value("ser10_pop_Int32_clipped_projected_10202014_NA_assigned_ser_pop_2000_10202014.tif",out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_val= -2147483648,out_file=None)
+
+        #gdal_calc.py -A input.tif --outfile=result.tif --calc="A*(A>0)" --NoDataValue=0
+        #lf_raster = ["ser10_pop_Int32_clipped_projected_10202014_NA_assigned_ser_pop_2000_10202014_NA_assigned_ser_pop_2010_10202014.tif"]
+        lf_raster = [infile_NA]
+        tmp1 = reclass_layer(0,lf_raster,out_dir,out_suffix_s,file_format,in_val=0,out_file="test_rec1.tif",operator="<",out_val=-2147483647) 
+        tmp2 = reclass_layer(0,[tmp1],out_dir,out_suffix_s,file_format,in_val=0,out_file="test_rec2.tif",operator="==",out_val=1) 
+        l_rast = [infile_NA,tmp2]
+        tmp3 = raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,out_file=None,operation="*",NA_flag_val= -2147483647)
+        out_file_subset.append(tmp3)
      
-    #out_suffix_reg = "reg900_"+out_suffix #the region file projected in the defined projection
+    #out_suffix_reg = "lsreg900_"+out_suffix #the region file projected in the defined projection
     out_suffix_reg = out_suffix #the region file projected in the defined projection
     
     w_extent_reg, reg_area_poly_projected = calculate_region_extent(shp_fname,out_suffix_reg,CRS_reg,out_dir)
@@ -1415,14 +1436,17 @@ def main():
     #out_suffix_s
     att_field="CNTYCODE"
     #file_format
-    output_type="Float32"
-    output_type="Float64"
+    #output_type="Float32"
+    #output_type="Float64"
+    output_type="Int32"
     
     all_touched=True
     #NA_flag_val= -9999
     out_file = None
     EPSG_code="26919"
-    lf_var = outfile_list[0:7]
+    lf_var = outfile_list[0:6]
+    lf_var = out_file_subset[0:6]
+    
     mask_shp=in_vect #Use gdal warp cutline option rather than gdalcalc if not null!! (used to resolve the problem with Float64???)
     lf_var_masked = mask_layers(in_vect,out_suffix_reg,att_field,file_format,output_type,lf_var,all_touched,NA_flag_val,CRS_reg,out_file,mask_shp)
 
