@@ -19,7 +19,7 @@
 #
 # Authors: Benoit Parmentier 
 # Created on: 03/24/2014
-# Updated on: 10/20/2014
+# Updated on: 11/05/2014
 # Project: DSS-SSI
 #
 ####### LOAD LIBRARY/MODULES USED IN THE SCRIPT ###########
@@ -352,6 +352,33 @@ def reclass_raster_categories(in_file,out_dir,out_suffix_s,unique_val,out_val,fi
         
         return l_out_file
 
+
+def assign_no_data_value(in_file,out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_val= -9999,out_file=None):
+    
+    #NA_flag_val_str = 
+    if NA_flag_val == None:
+        NA_flag_val_str = getNoDataValue(in_file) #get no data val from file...
+        
+    if NA_flag_val != None:
+        NA_flag_val_str = str(NA_flag_val) #get no data val from file...
+        
+    if out_file==None:
+        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_NA_assigned_"+out_suffix_s+file_format
+        out_file = os.path.join(out_dir,out_file)
+    
+    src_dataset = in_file
+    dst_dataset = out_file
+    CRS_src = CRS_reg
+    cmd_str = "".join(["gdal_translate",
+                              # " "+"-projwin"+" "+w_extent,
+                            #" "+"-a_srs"+" '"+CRS_src+"'",
+                            " -a_nodata "+NA_flag_val_str,
+                            " "+src_dataset, 
+                            " "+dst_dataset])            
+    os.system(cmd_str)
+    return out_file
+
+
 ## Creating mask image from rasterinput: this creates a boolean image from input layer   
 def create_raster_mask(in_file,out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_val= -9999,out_file=None):
     #This functions creates an mask from an input raster.
@@ -359,7 +386,7 @@ def create_raster_mask(in_file,out_dir,out_suffix_s,file_format,CRS_reg,NA_flag_
     #this function will be improve later on...  
       
     NA_flag_val_str = str(NA_flag_val)
-
+    
     NA_flag_val_in = getNoDataValue(in_file) #get no data val from file...
     if out_file==None:
         out_file = os.path.splitext(os.path.basename(in_file))[0]+"_masked_"+out_suffix_s+file_format
@@ -880,9 +907,67 @@ def lf_mean_raster(lf_raster,out_dir,out_suffix_s,out_file,file_format,NA_flag_v
                   "--NoDataValue="+NA_flag_val_str,
                   "--overwrite"]
     out = subprocess.call(cmdStr)
+    return out_file   
+    
+def convert_raster_file_data_type(in_file,out_dir,out_suffix_s,file_format,CRS_reg,ot_str="Int32",out_file=None):
+            
+    if out_file==None:
+        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_NA_assigned_"+out_suffix_s+file_format
+        out_file = os.path.join(out_dir,out_file)
+    
+    src_dataset = in_file
+    dst_dataset = out_file
+    CRS_src = CRS_reg
+
+    cmd_str = "".join(["gdal_translate",
+                              # " "+"-projwin"+" "+w_extent,
+                            #" "+"-a_srs"+" '"+CRS_src+"'",
+                            " -ot "+ot_str,
+                            " "+src_dataset, 
+                            " "+dst_dataset])            
+    os.system(cmd_str)
     return out_file
+    
+def reclass_layer(i,lf_raster,out_dir,out_suffix_s,file_format,in_val,out_file=None,operator="==",out_val=1): 
+    #NA_flag_val= -9999):
+    #operator ="+"
+    #r_sum = raster_calc_operation_on_list(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= -9999)
+    #r_sum =raster_calc_operation_on_list(lf_raster,out_dir,out_suffix_s,file_format,operation="+",NA_flag_val= NA_flag_val,out_file)
+   in_file = lf_raster[i]
+   in_val_str = str(in_val)
+   out_val_str = str(out_val)
+   
+   if out_file==None:
+        out_file = os.path.splitext(os.path.basename(in_file))[0]+"_rec_"+out_suffix_s+file_format
+        out_file = os.path.join(out_dir,out_file)
 
+    #NA_flag_val_str = str(NA_flag_val)
+   cmdStr = ['gdal_calc.py',
+                  '-A',in_file,
+                  "--outfile="+out_file,
+                  #"--calc="+out_val_str+"*(A <"+in_val_str+")",
+                  "--calc="+out_val_str+"*(A "+operator+in_val_str+")",
+                  #"--NoDataValue="+NA_flag_val_str,
+                  "--overwrite"]
+                  
+   #cmdStr = ['gdal_calc.py',
+   #               '-A',in_file,
+   #               "--outfile="+out_file,
+   #               #"--calc="+out_val_str+"*(A <"+in_val_str+")",
+   #               "--calc="+out_val_str+"*(A "+operator+in_val_str+")",
+   #               "--NoDataValue="+NA_flag_val_str,
+   #               "--overwrite"]
+                  
+   out = subprocess.call(cmdStr)
+   return out_file   
 
+#gdal_calc.py -A input.tif --outfile=result.tif --calc="A*(A>0)" --NoDataValue=0
+lf_raster = ["ser10_pop_Int32_clipped_projected_10202014_NA_assigned_ser_pop_2000_10202014_NA_assigned_ser_pop_2010_10202014.tif"]
+tmp1=reclass_layer(1,lf_raster,out_dir,out_suffix_s,file_format,in_val=0,out_file="test_rec1.tif",operator="<",out_val=-2147483647) 
+tmp2=reclass_layer(1,lf_raster,out_dir,out_suffix_s,file_format,in_val=0,out_file="test_rec2.tif",operator="==",out_val=1) 
+tmp3=raster_calc_operation_on_list(l_rast,out_dir,out_suffix_s,file_format,out_file=None,operation="*",NA_flag_val= -2147483647)
+   
+    
 #img = np.memmap(rast_fname, dtype=np.float32, shape=(19913, 15583))? could be an alternative using
 #memory mapping for large numpy array??
 #ar = numpy.zeros((nrow,ncol),dtype=data_type) #data type 'Byte' not understood
@@ -1247,6 +1332,8 @@ def main():
     #dir_path = os.path.join(in_dir,"VarsFeb2014")
 
     lf_var_pop = glob.glob(os.path.join(in_dir,"se*pop.tif")) #US AEA, use none
+    lf_var_pop = glob.glob(os.path.join(in_dir,"se*pop_Int32.tif")) #US AEA, use none
+    
     lf_var_hou = glob.glob(os.path.join(in_dir,"se*housing.tif")) #US AEA, use none
     lf_var_hist_temp = glob.glob(os.path.join(in_dir,"me_hist*.tif")) #Lat long EPSG 4326
     lf_var = lf_var_pop + lf_var_hou + lf_var_hist_temp
