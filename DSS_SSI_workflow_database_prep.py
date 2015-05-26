@@ -10,7 +10,7 @@
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 05/17/2014
+# Updated on: 05/26/2014
 # Project: DSS-SSI
 #
 # TODO:
@@ -81,14 +81,18 @@ def natural_keys(text):
     '''
     return [ atoi(c) for c in re.split('(\d+)', text) ]
 
-def create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix):
+def create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix,use_str=False):
     #This works but really needs to be improved!!
     #This function creates a table from the list wiht averages by
     #polygons. We used a numpy array rather than a numpy record array.
     #This only takes the mean right now so could store other information
     #later!!!
-    
+    import numpy as np           #Array, matrices and scientific computing
+
     table = np.ones((nb_rows,nb_columns))
+    if use_str==True:
+        table = np.array(table,np.dtype("a64")) #convert to string if needed
+    
     #add ID first...?
     for i in range(0,nb_columns):
         rows_output = list_rows[i]
@@ -97,7 +101,10 @@ def create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suf
             table[j,i] = tu[element_nb]
     fname = "table_"+out_suffix+".txt"       
     outfile1 = os.path.join(out_dir,fname)
-    np.savetxt(outfile1, table, fmt='%-7.6f')
+    if use_str==False:
+        np.savetxt(outfile1, table, fmt='%-7.6f')
+    if use_str==True:
+        np.savetxt(outfile1, table, fmt="%s")
     return table
     ## NEED TO ADD and ID Column!!!
     #May be add function to also store other values...        
@@ -122,7 +129,29 @@ def create_var_names_from_files(f_list):
         list_var_info_dict.append(var_info_dict)
     
     return list_var_info_dict
+ 
+## More general function for both NCAR and NLCD data? 
+def create_var_names_from_files_NLCD(f_list):
     
+    #assume the following string structure
+    #tmax_1_clipped_projected_ncar_ccsm3_0_sres_a1b_2030s_tmax_2_5min_no_tile_asc04122014
+    list_var_info_dict = []
+    for j in range(0,len(f_list)):
+        
+        filename= os.path.basename(f_list[j])
+        list_str= filename.split("_")
+        var = list_str[0]
+        year = list_str[1]
+        category = list_str[2]
+        var_info_dict = {}
+        var_info_dict["var"] = var
+        var_info_dict["year"] = year
+        var_info_dict["category"] = category
+        
+        list_var_info_dict.append(var_info_dict)
+    
+    return list_var_info_dict
+   
 def shp_to_data_frame(shp_fname):
     driver = ogr.GetDriverByName("ESRI Shapefile")
     ds =driver.Open(shp_fname,0)
@@ -480,6 +509,13 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
 
     rows_table = cur.fetchall()
     
+    #Also export in panda data.frame format if it is available on the system (add default option to function!!!)
+    #cur.execute("select instrument, price, date from my_prices")
+    #df = DataFrame(cur.fetchall(), columns=['instrument', 'price', 'date'])
+    #df.set_index('date', drop=False)
+    #import pandas.io.sql as sql
+    #sql.read_frame("select * from test",con)
+    
     #list_rows.append(rows)
     #writeout list....    
     fname = "rows"+str(i)+"_"+out_suffix+".dat"
@@ -746,8 +782,147 @@ def main():
         df_val.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table        
         
     #Write function to add back the tables in postgis and join them?   
+     ############# NLCD SUMMARY TABLE this works for now but need to be improved!!!
     list_rows_NLCD
+    l_f_valueType_NLCD
+    
+    df create_var_names_from_files_NLCD(f_list)   
+    
+        #There are 16*48 (48 variables and 16 region)...the final data.frame has 16*48 rows...ß
+    nb_region = len(df_region1[region_name].unique()) #number of unique regions...16 for counties
+    list_val_info_NLCD =[]
+    #for i in range(0,len(dict_rows_summary)):
+            ##MAKE THIS A SEPARATE PART IN WHICH valueType and Time are added!!
+    #l_f = dict_rast_fname.values()[i]           
 
+    var_info_NLCD = create_var_names_from_files_NLCD(l_f_valueType_NLCD)
+    df_info_NLCD = pd.DataFrame(var_info_NLCD)
+                
+    ## Should this be a function similar to NCAR?            
+    val_info_NLCD = []
+        #name_col = []
+    for j in range(0,3): #number of col in df_info:
+        list_name_col = []
+        for k in range(0,df_info_NLCD.count()[1]): #number of rows in df_info:
+            l = []  
+            l.append(df_info_NLCD.ix[k,j])
+            name_col = l*nb_region
+            list_name_col.extend(name_col)
+            val_info.append(list_name_col)
+        list_val_info_NLCD.append(val_info)
+    
+    list_name_var = []    
+    name_var = []
+    val_info_tmp = list_val_info_NLCD
+    for k in range(0,len(val_info[0])):
+        test = val_info_tmp[0][k]+"_"+val_info_tmp[1][k]+"_"+val_info_tmp[2][k]
+        name_var.append(test)
+        list_name_var.append(name_var)
+
+    l_f_nlcd1992_subset_cat_dict = {
+    "nlcd_1992_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[0])),
+    "nlcd_1992_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[0])),
+    "nlcd_1992_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[0])),
+    "nlcd_1992_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[0]))}
+        
+    l_f_nlcd2001_subset_cat_dict = {
+    "nlcd_2001_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[1])),
+    "nlcd_2001_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[1])),
+    "nlcd_2001_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[1])),
+    "nlcd_2001_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[1]))}
+
+    l_f_nlcd2006_subset_cat_dict = {
+    "nlcd_2006_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[2])),
+    "nlcd_2006_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[2])),
+    "nlcd_2006_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[2])),
+    "nlcd_2006_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[2]))}
+        
+
+
+
+
+    dict_rows_summary = {"nlcd":list_rows_NLCD} #,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
+    dict_table = {}
+    #l_f = dict_rast_fname.values()[i]           
+    dict_rast_fname = {}
+    #l_f_tmin = filter(lambda x: re.search(r'tmin',x),l_f_valueType)        
+    #l_f_tmax = filter(lambda x: re.search(r'tmax',x),l_f_valueType)
+    #l_f_tmean = filter(lambda x: re.search(r'tmean',x),l_f_valueType)        
+    dict_rast_fname = {"nlcd": l_f_valueType_NLCD}  #, "tmax": l_f_tmax, "tmean": l_f_tmean }
+
+    ### Create name for variable computed: This part can change significantly...since it is specific to
+    ### ncar filename and nlcd
+    ##quite long...
+    
+    ######### THIS WHOLE SECTION CAN BE MADE AS A FUNCTION.... 
+    #There are 16*48 (48 variables and 16 region)...the final data.frame has 16*48 rows...ß
+    nb_region = len(df_region1[region_name].unique()) #number of unique regions...16 for counties
+    list_val_info =[]
+    for i in range(0,len(dict_rows_summary)):
+            ##MAKE THIS A SEPARATE PART IN WHICH valueType and Time are added!!
+        l_f = dict_rast_fname.values()[i]           
+        #var_info = create_var_names_from_files(l_f) #this lines changes
+        var_info = create_var_names_from_files_NLCD(l_f)
+        
+        df_info = pd.DataFrame(var_info)
+                
+        val_info = []
+        #name_col = []
+        for j in range(0,3): #number of col in df_info
+            list_name_col = []
+            for k in range(0,df_info.count()[1]): #number of rows in df_info
+                l = []  
+                l.append(df_info.ix[k,j])
+                name_col = l*nb_region
+                list_name_col.extend(name_col)
+            val_info.append(list_name_col)
+        list_val_info.append(val_info)
+       
+    list_name_var = []
+ 
+    for i in range(0,len(dict_rows_summary)):
+        name_var = []
+        val_info_tmp = list_val_info[i]
+        for k in range(0,len(val_info[0])):
+            test = val_info_tmp[0][k]+"_"+val_info_tmp[1][k]+"_"+val_info_tmp[2][k]
+            name_var.append(test)
+        list_name_var.append(name_var)
+        
+    ### end of name creation part for ncar temp predictions: might be changed for different input
+    
+    ### Now add info to create table
+    
+    #zonal_stat = "mean" #This is set earlier...
+    zonal_stat_col = ["region","sum","mean","count","max","min"] #should be set earlier from teh output or rows?
+    for i in range(0,len(dict_rows_summary)):
+        list_rows = dict_rows_summary.values()[i]
+        var_name = dict_rows_summary.keys()[i]
+        nb_columns = len(list_rows) # + 1
+        nb_rows = len(list_rows[0])
+        element_nb = zonal_stat_col.index(zonal_stat)  #find the position of zonal stat in hte list
+        #this is the column containing the mean for each entity (third column from postgis table)    
+        #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
+        table = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
+        dict_table[var_name] = table
+        #Now add id back...
+        nb_columns = 1 #this regturns only the first
+        element_nb = 0 #this is the column containing the region id set in the first part of the script
+        #table_test = pdb.runcall(create_summary_table,list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
+        id_reg = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix,use_str=True)
+        id_reg = id_reg.ravel()
+        region_id = id_reg.tolist() #= region_id
+        #region_id = ["%s" % number for number in id_reg]
+        
+        #Now reshape to have a 48*16 rows and 4 columns... the last should be ID region
+        nb_columns = len(list_rows) # + 1
+        tt=table.ravel()
+        df_val = pd.DataFrame(tt,columns=["value"])
+        df_val["type"]= (list(region_type))* int(df_val.count()) #using the number of count in column value
+        df_val["Name"]= region_id*nb_columns #using the number of count in column value
+        df_val["valueType"] = list_name_var[i]
+        df_val.ix[1:10,] #print first 10 rows with columns name for quick check
+        #Write out results
+        df_val.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table        
 
     return None
     
