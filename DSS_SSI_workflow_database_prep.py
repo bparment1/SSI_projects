@@ -10,7 +10,7 @@
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 05/26/2014
+# Updated on: 05/27/2014
 # Project: DSS-SSI
 #
 # TODO:
@@ -36,7 +36,7 @@ import numpy as np           #Array, matrices and scientific computing
 import pickle                #Object serialization
 from multiprocessing import Process, Manager, Pool #parallel processing
 import pdb                   #for debugging
-import pandas as pd
+import pandas as pd          #DataFrame object and other R like features for data munging
 
 ################ NOW FUNCTIONS  ###################
 
@@ -398,6 +398,7 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     #polygon_input_shp_table = "towns"
     
     rast_input = rast_fname[i]
+    #rast_input = "tmax_7_clipped_projected_ncar_ccsm3_0_sres_a1b_2020s_tmax_2_5min_no_tile_asc05152014.tif"
     #output_table_rast = "mtemp"
     output_table_rast ="".join(["mtemp_",str(i)])
     poly_table = "".join(["mht_poly_use_",str(i)]) #This is the name of the table that will store the values of 
@@ -448,25 +449,13 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     ## IMPORT RASTER IN POSTGIS
     SQL_str = "DROP TABLE IF EXISTS %s;" % (output_table_rast)
     cur.execute(SQL_str) #Should collect all commands executed in a file (for later)
-    
-#    cmd_str = "".join([postgres_path_bin,
-#                      "raster2pgsql",
-#                      " ","-s ",SRS_EPSG,             #projection system add as input
-#                      " ","-I -t 1x1",               #additional options
-#                      " ",rast_input,
-#                     " ",output_table_rast,
-#                      " ","| psql",
-#                      " ","-U ",user_name,
-#                      " ","-d ",db_name,
-#                      " >rast.log"])
-#    os.system(cmd_str)
-    
+        
     rast_tiling = str(tile_size)+"x"+str(tile_size)
     cmd_str = "".join([postgres_path_bin,
                       "raster2pgsql",                 #We can potentially use ...
                       " ","-s ",SRS_EPSG,             #projection system add as input
                       " ","-I ",                      #build spatial index, overview factor
-                      " ","-N ", NA_flag_val_str,     #Nod data val to use on bands without a NODATA value...
+                      #" ","-N ", NA_flag_val_str,     #Nod data val to use on bands without a NODATA value...
                       " ","-t ",rast_tiling,          #store raster in nxn tile table
                       " ",rast_input,                 #input raster name
                       " ",output_table_rast,
@@ -478,17 +467,25 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     
     #First convert raster image into a polygon...
     
-    #cur.execute("DROP TABLE IF EXISTS mht_poly_use");
+    #cur.execute("DROP TABLE IF EXISTS mht_poly_use_0");
     SQL_str = "DROP TABLE IF EXISTS %s;" % (poly_table)
     cur.execute(SQL_str) #Should collect all commands executed in a file (for later)
     
     #Note that rast is column that contains values of tiles imported from the raster
+    #rid is the tile id,rast is the column containing the raster object
     #http://postgis.net/docs/RT_ST_SummaryStats.html
+    #This is where we need to add the number of pixels per tiles and number of no_data values
+    #This will allow weighting of the pixel value (which is the sum...)
     SQL_str = "SELECT ST_ConvexHull(rast) AS pixelgeom, ST_Area(ST_ConvexHull(rast)) AS pixelarea,(ST_SummaryStats(rast)).sum AS pixelval INTO %s FROM %s WHERE (ST_SummaryStats(rast)).sum IS NOT NULL;" % (poly_table,output_table_rast)
+    #SQL_str = "SELECT ST_ConvexHull(rast) AS pixelgeom, ST_Area(ST_ConvexHull(rast)) AS pixelarea,(ST_SummaryStats(rast)).sum AS pixelval INTO %s FROM %s WHERE (ST_SummaryStats(rast)).sum IS NOT NULL;" % (poly_table,output_table_rast)
     cur.execute(SQL_str) 
     #NOW create an index
     #cur.execute("CREATE INDEX idx_pixelgeom ON mht_poly_use USING GIST(pixelgeom);")
+    
     idx_pixelgeom = "idx_pixelgeom_%s" % (str(i))
+    SQL_str = "DROP INDEX IF EXISTS %s;" % (idx_pixelgeom)
+    cur.execute(SQL_str) 
+
     SQL_str = "CREATE INDEX %s ON %s USING GIST(pixelgeom);" % (idx_pixelgeom,poly_table)
     cur.execute(SQL_str)
     #Change cntycode to Name...also save the type column?--> make it a table...
