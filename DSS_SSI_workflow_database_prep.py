@@ -10,7 +10,7 @@
 ##
 ## Authors: Benoit Parmentier 
 # Created on: 04/02/2014
-# Updated on: 05/27/2014
+# Updated on: 06/02/2014
 # Project: DSS-SSI
 #
 # TODO:
@@ -37,6 +37,7 @@ import pickle                #Object serialization
 from multiprocessing import Process, Manager, Pool #parallel processing
 import pdb                   #for debugging
 import pandas as pd          #DataFrame object and other R like features for data munging
+import pandas.io.sql as sql  #Direct access to database with ouput in DataFrame
 
 ################ NOW FUNCTIONS  ###################
 
@@ -352,7 +353,7 @@ def get_vct_FieldName(shp_fname):
     nf = lyr.GetFeatureCount() #number of features
     return list_names, nf
 
-def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,region_id_col,postgres_path_bin,db_name,user_name,NA_flag_val,tile_size=1):
+def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,region_id_col,postgres_path_bin,db_name,user_name,NA_flag_val,var_name=None,tile_size=1):
 #def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name):
     
     #This function calculate summary statistic i.e. average per region in the
@@ -505,13 +506,21 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     cur.execute(SQL_str)       
 
     rows_table = cur.fetchall()
-    
+
+    SQL_str = "SELECT * FROM %s" % (zonal_stat_regions)
+    df_zonal = sql.read_frame(SQL_str,conn)     
+    if var_name==None:
+        var_name= "var"+"_"+str(i)
+    df_zonal["var"] = var_name #adding the variable name
+    df_zonal.to_csv("df_zonal_"+var_name+"_"+out_suffix+".csv")    
+    #df_val.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table        
+
+        
     #Also export in panda data.frame format if it is available on the system (add default option to function!!!)
     #cur.execute("select instrument, price, date from my_prices")
     #df = DataFrame(cur.fetchall(), columns=['instrument', 'price', 'date'])
     #df.set_index('date', drop=False)
-    #import pandas.io.sql as sql
-    #sql.read_frame("select * from test",con)
+    #df=sql.read_frame("select * from test",con)
     
     #list_rows.append(rows)
     #writeout list....    
@@ -523,7 +532,7 @@ def caculate_zonal_statistics(i,out_dir,out_suffix,rast_fname,shp_fname,SRS_EPSG
     cur.close()
     conn.close()
     
-    return rows_table
+    return rows_table,df_zonal
     
     
 #######################################################################
@@ -546,11 +555,11 @@ def main():
     
     shp_fname = os.path.join(in_dir,"county24.shp")
     region_name = "COUNTY" #name of the column containing the id for each entities...
+    variable_name = "temp" #type of variable can also be nlcd
     #region_name = "CNTYCODE"
     #if region_name is None then create an ID? Add this option later on.
     region_type = "C"    #type for the region entity: C for county, T for town  
-    valueType = ["tmin","tmax","tmean"] #temperature the list can be one only...
-    zonal_stat = "mean" #This is the statistic extracted from the region
+    zonal_stat = "means" #This is the statistic extracted from the region
 
     #polygon_input_shp_file = "metwp24.shp"
 
@@ -572,7 +581,7 @@ def main():
     #+proj=utm +zone=19 +ellps=GRS80 +datum=NAD83 +units=m +no_defs
     #file_format = ".tif"
 
-    SRS_EPSG = "2037"             
+    SRS_EPSG = "2037"
     #Database information       
     db_name ="test_ssi_db3"
     db_name ="test_ssi_db2"
@@ -580,7 +589,7 @@ def main():
     user_name = "benoit"
     #user_name = "parmentier" 
     postgres_path_bin = "/usr/lib/postgresql/9.1/bin/"  #on SSI Maine
-    tile_size = 10  #this set the tile size for the raster postgis table
+    tile_size = 1  #this set the tile size for the raster postgis table
     NA_flag_val = -9999
     #postgres_path_bin = ""  #on ATLAS NCEAS
     
@@ -627,299 +636,109 @@ def main():
 
     #Get raster files that were process previously, sort files by variable...
     dict_rast_fname = {}
-    l_f_tmin = filter(lambda x: re.search(r'tmin',x),l_f_valueType)        
-    l_f_tmax = filter(lambda x: re.search(r'tmax',x),l_f_valueType)
-    l_f_tmean = filter(lambda x: re.search(r'tmean',x),l_f_valueType)        
-    dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax, "tmean": l_f_tmean }
-        
+    lf_rast_fname = []
+    l_f_tmin_7=  filter(lambda x: re.search(r'tmin_7_',x),l_f_valueType)       
+    l_f_tmin_1 = filter(lambda x: re.search(r'tmin_1_',x),l_f_valueType)
+    l_f_tmax_7 = filter(lambda x: re.search(r'tmax_7_',x),l_f_valueType)       
+    l_f_tmax_1 = filter(lambda x: re.search(r'tmax_1_',x),l_f_valueType)
+    l_f_tmean_7 = filter(lambda x: re.search(r'tmean_7_',x),l_f_valueType)       
+    l_f_tmean_1 = filter(lambda x: re.search(r'tmean_1_',x),l_f_valueType)
+    lf_rast_fname = l_f_tmin_7 + l_f_tmin_1 + l_f_tmax_1 + l_f_tmax_7 + l_f_tmean_1 + l_f_tmean_7 
+
+    var_info = create_var_names_from_files(lf_rast_fname)
+    df_info = pd.DataFrame(var_info)
+    Ser_var_name = df_info['decade'] +"_" +df_info['month']+"_"+df_info["var"] #panda series with name of var
+    
     #This will be parallelized and looped through dict_rast_fname 
-    #can make one additional loop to reduce the repitition with tmin, tmax and tmean
+    #can make one additional loop to reduce the repitition with the variable list of files
+
+    list_rows_var = [] # defined lenth right now
+    list_df_var = [] # defined lenth right now
     
-    list_rows_NLCD = [] # defined lenth right now    
-    rast_fname = l_f_valueType_NLCD #copy by refernce!!
-
-    for i in range(1,len(rast_fname)):
-    #for i in range(0,2):    
-        out_suffix_s = "NLCD_"+out_suffix
-        #tile_size = 1
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,tile_size)
-        list_rows_NLCD.append(rows) #add object rows to list
-
-    list_rows_tmin = [] # defined lenth right now  f  
-    rast_fname = l_f_tmin #copy by refernce!!
-
-    for i in range(0,len(rast_fname)):
-    #for i in range(0,2):    
-        out_suffix_s = "tmin_"+out_suffix
-        #tile_size = 1
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,tile_size)
-        list_rows_tmin.append(rows) #add object rows to list
-        #test = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
-
-    list_rows_tmax = [] # defined lenth right now
-    rast_fname = l_f_tmax #copy by refernce!!
-    
-    for i in range(0,len(rast_fname)):
-    #for i in range(0,2):      
-        out_suffix_s = "tmax_"+out_suffix
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
-        #rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,region_id_col,postgres_path_bin,db_name,user_name)
-        list_rows_tmax.append(rows) #add object rows to list
+    for i in range(0,len(lf_rast_fname)):
+    #for i in range(0,2):
+        var_name = Ser_var_name[i]
+        out_suffix_s = var_name + "_"+out_suffix
+        #test, test_df = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
+        rows,df = caculate_zonal_statistics(i,out_dir,out_suffix_s,lf_rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,var_name,tile_size)
+        list_df_var.append(df) #add object rows to list
+        list_rows_var.append(rows) #add object rows to list
         
-    list_rows_tmean = [] # defined lenth right now
-    rast_fname = l_f_tmean #copy by refernce!!
-    
-    for i in range(0,len(rast_fname)):
-    #for i in range(0,2):     
-        out_suffix_s = "tmean_"+out_suffix
-        #test = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
-        rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
-        #rows = caculate_zonal_statistics(i,out_dir,out_suffix_s,rast_fname,shp_fname,SRS_EPSG,postgres_path_bin,db_name,user_name)
-        list_rows_tmean.append(rows) #add object rows to list
-        #Note the first columns from row contains: region ID
-        #Other columns contain in hte order: region ID, sums, means, counts, maxes, mins, area
-
-    nb_columns = len(list_rows_tmin) # + 1
-    nb_rows = len(list_rows_tmin[0])
-     
-    #Write out results by combining
-    #test1 =load_data(fname)
-    fname = "list_rows_min_"+out_suffix+".dat"
+    ##Write out rows
+    fname = "list_rows_"+variable_name+"_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
-    save_data(list_rows_tmin,fname)
-    ##Write out tmax
-    fname = "list_rows_max_"+out_suffix+".dat"
+    save_data(list_rows_var,fname)
+    ##Write out dataframe
+    fname = "list_df_"+variable_name+"_"+out_suffix+".dat"
     fname = os.path.join(out_dir,fname)
-    save_data(list_rows_tmax,fname)
-    
-    ##Write out tmax
-    fname = "list_rows_mean_"+out_suffix+".dat"
-    fname = os.path.join(out_dir,fname)
-    save_data(list_rows_tmean,fname)
+    save_data(list_df_var,fname)
 
-    #list_rows_tmin = load_data("list_rows_min_05032014.dat")
-    #list_rows_tmax = load_data("list_rows_max_05032014.dat")
-    #list_rows_tmean = load_data("list_rows_mean_05032014.dat")
+    df_var = pd.concat(list_df_var) #problem with the row indices
+    nb_rows = df_var['means'].count()
+    new_index = np.arange(0,nb_rows).tolist()  
+    df_var['ni'] = new_index #change the rows index
+    df_var = df_var.set_index('ni')
+    #df_var[df_var['means']> 200][['county','means']] #this is an example of subset of data.frame
+    #note that there is a problem with name county transformed to lower case
+    df_val = df_var[[region_name.lower(),zonal_stat,'var']] #select specific columns in a dataframe
+    df_val.columns = ["Name","value","valueType"] #rename columns 
+    df_val["type"] = [region_type]*nb_rows #create new column...
+    variable_name = "temp" #set up at the beginning
+    df_val.to_csv("df_zonal_combined_"+variable_name+"_"+out_suffix+".csv")
+    df_val.ix[1:10,] #print first 10 rows with columns name for quick check
+    df_val["value"].describe() #summary values and range for checking output...
     
-    #list_rows_tmean = load_data("list_rows_mean_"+out_suffix)
-    
-    #li    dict_rast_fname = {"tmin": l_f_tmin, "tmax": l_f_tmax, "tmean": l_f_tmean }
-    #list_rows_summary = [list_rows_tmin,list_rows_tmax,list_rows_tmean]
-    #dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
+    ############ Summarize NLCD data ####################
 
-    dict_rows_summary = {"tmin":list_rows_tmin,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
-    dict_table = {}
-
-    ### Create name for variable computed: This part can change significantly...since it is specific to
-    ### ncar filename.
-    ##quite long...
-    
-    #There are 16*48 (48 variables and 16 region)...the final data.frame has 16*48 rows...ß
-    nb_region = len(df_region1[region_name].unique()) #number of unique regions...16 for counties
-    list_val_info =[]
-    for i in range(0,len(dict_rows_summary)):
-            ##MAKE THIS A SEPARATE PART IN WHICH valueType and Time are added!!
-        l_f = dict_rast_fname.values()[i]           
-        var_info = create_var_names_from_files(l_f)
-        df_info = pd.DataFrame(var_info)
-                
-        val_info = []
-        #name_col = []
-        for j in range(0,3): #number of col in df_info
-            list_name_col = []
-            for k in range(0,df_info.count()[1]): #number of rows in df_info
-                l = []  
-                l.append(df_info.ix[k,j])
-                name_col = l*nb_region
-                list_name_col.extend(name_col)
-            val_info.append(list_name_col)
-        list_val_info.append(val_info)
-       
-    list_name_var = []
- 
-    for i in range(0,len(dict_rows_summary)):
-        name_var = []
-        val_info_tmp = list_val_info[i]
-        for k in range(0,len(val_info[0])):
-            test = val_info_tmp[0][k]+"_"+val_info_tmp[1][k]+"_"+val_info_tmp[2][k]
-            name_var.append(test)
-        list_name_var.append(name_var)
-        
-    ### end of name creation part for ncar temp predictions: might be changed for different input
-    
-    ### Now add info to create table
-    
-    #zonal_stat = "mean" #This is set earlier...
-    zonal_stat_col = ["region","sum","mean","count","max","min"] #should be set earlier from teh output or rows?
-    for i in range(0,len(dict_rows_summary)):
-        list_rows = dict_rows_summary.values()[i]
-        var_name = dict_rows_summary.keys()[i]
-        nb_columns = len(list_rows) # + 1
-        nb_rows = len(list_rows[0])
-        element_nb = zonal_stat_col.index(zonal_stat)  #find the position of zonal stat in hte list
-        #this is the column containing the mean for each entity (third column from postgis table)    
-        #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
-        table = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
-        dict_table[var_name] = table
-        #Now add id back...
-        nb_columns = 1 #this regturns only the first
-        element_nb = 0 #this is the column containing the region id set in the first part of the script
-        id_reg = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
-        region_id = ["%.0d" % number for number in id_reg]
-        
-        #Now reshape to have a 48*16 rows and 4 columns... the last should be ID region
-        nb_columns = len(list_rows) # + 1
-        tt=table.ravel()
-        df_val = pd.DataFrame(tt,columns=["value"])
-        df_val["type"]= (list(region_type))* int(df_val.count()) #using the number of count in column value
-        df_val["Name"]= region_id*nb_columns #using the number of count in column value
-        df_val["valueType"] = list_name_var[i]
-        df_val.ix[1:10,] #print first 10 rows with columns name for quick check
-        #Write out results
-        df_val.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table        
-        
-    #Write function to add back the tables in postgis and join them?   
-     ############# NLCD SUMMARY TABLE this works for now but need to be improved!!!
-    list_rows_NLCD
-    l_f_valueType_NLCD
-    
-    df create_var_names_from_files_NLCD(f_list)   
-    
-        #There are 16*48 (48 variables and 16 region)...the final data.frame has 16*48 rows...ß
-    nb_region = len(df_region1[region_name].unique()) #number of unique regions...16 for counties
-    list_val_info_NLCD =[]
-    #for i in range(0,len(dict_rows_summary)):
-            ##MAKE THIS A SEPARATE PART IN WHICH valueType and Time are added!!
-    #l_f = dict_rast_fname.values()[i]           
-
+    #inputs
     var_info_NLCD = create_var_names_from_files_NLCD(l_f_valueType_NLCD)
-    df_info_NLCD = pd.DataFrame(var_info_NLCD)
-                
-    ## Should this be a function similar to NCAR?            
-    val_info_NLCD = []
-        #name_col = []
-    for j in range(0,3): #number of col in df_info:
-        list_name_col = []
-        for k in range(0,df_info_NLCD.count()[1]): #number of rows in df_info:
-            l = []  
-            l.append(df_info_NLCD.ix[k,j])
-            name_col = l*nb_region
-            list_name_col.extend(name_col)
-            val_info.append(list_name_col)
-        list_val_info_NLCD.append(val_info)
+    df_info = pd.DataFrame(var_info_NLCD) 
+    Ser_var_name = df_info['category'] +"_" +df_info['var']+"_"+df_info["year"] #panda series with name of var
+    variable_name =  "NLCD"
+    lf_rast_fname = l_f_valueType_NLCD #copy by refernce!!
+    #region_name, zonal_stat + all the inputs  for calculate_zonal_statistics
     
-    list_name_var = []    
-    name_var = []
-    val_info_tmp = list_val_info_NLCD
-    for k in range(0,len(val_info[0])):
-        test = val_info_tmp[0][k]+"_"+val_info_tmp[1][k]+"_"+val_info_tmp[2][k]
-        name_var.append(test)
-        list_name_var.append(name_var)
-
-    l_f_nlcd1992_subset_cat_dict = {
-    "nlcd_1992_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[0])),
-    "nlcd_1992_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[0])),
-    "nlcd_1992_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[0])),
-    "nlcd_1992_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[0]))}
-        
-    l_f_nlcd2001_subset_cat_dict = {
-    "nlcd_2001_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[1])),
-    "nlcd_2001_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[1])),
-    "nlcd_2001_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[1])),
-    "nlcd_2001_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[1]))}
-
-    l_f_nlcd2006_subset_cat_dict = {
-    "nlcd_2006_urban":(filter(lambda x: re.search(r'rec_2',x),outfile_breakout_list[2])),
-    "nlcd_2006_forest":(filter(lambda x: re.search(r'rec_4',x),outfile_breakout_list[2])),
-    "nlcd_2006_agriculture":(filter(lambda x: re.search(r'rec_8',x),outfile_breakout_list[2])),
-    "nlcd_2006_wetland":(filter(lambda x: re.search(r'rec_9',x),outfile_breakout_list[2]))}
-        
-
-
-
-
-    dict_rows_summary = {"nlcd":list_rows_NLCD} #,"tmax":list_rows_tmax,"tmean":list_rows_tmean}
-    dict_table = {}
-    #l_f = dict_rast_fname.values()[i]           
-    dict_rast_fname = {}
-    #l_f_tmin = filter(lambda x: re.search(r'tmin',x),l_f_valueType)        
-    #l_f_tmax = filter(lambda x: re.search(r'tmax',x),l_f_valueType)
-    #l_f_tmean = filter(lambda x: re.search(r'tmean',x),l_f_valueType)        
-    dict_rast_fname = {"nlcd": l_f_valueType_NLCD}  #, "tmax": l_f_tmax, "tmean": l_f_tmean }
-
-    ### Create name for variable computed: This part can change significantly...since it is specific to
-    ### ncar filename and nlcd
-    ##quite long...
+    ## Could wrap this into a nice function....
     
-    ######### THIS WHOLE SECTION CAN BE MADE AS A FUNCTION.... 
-    #There are 16*48 (48 variables and 16 region)...the final data.frame has 16*48 rows...ß
-    nb_region = len(df_region1[region_name].unique()) #number of unique regions...16 for counties
-    list_val_info =[]
-    for i in range(0,len(dict_rows_summary)):
-            ##MAKE THIS A SEPARATE PART IN WHICH valueType and Time are added!!
-        l_f = dict_rast_fname.values()[i]           
-        #var_info = create_var_names_from_files(l_f) #this lines changes
-        var_info = create_var_names_from_files_NLCD(l_f)
+    #This will be parallelized and looped through dict_rast_fname 
+    #can make one additional loop to reduce the repitition with the variable list of files
+
+    list_rows_var = [] # defined lenth right now, will contains rows from SQL query
+    list_df_var = [] # defined lenth right now, will contain dataframe from sql query
+
+    for i in range(0,len(lf_rast_fname)):
+    #for i in range(0,2):
+        var_name = Ser_var_name[i]
+        out_suffix_s = var_name + "_"+out_suffix
+        #test, test_df = pdb.runcall(caculate_zonal_statistics,i,out_dir,out_suffix_s,rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name)
+        rows,df = caculate_zonal_statistics(i,out_dir,out_suffix_s,lf_rast_fname,out_fname1,SRS_EPSG,region_name,postgres_path_bin,db_name,user_name,NA_flag_val,var_name,tile_size)
+        list_df_var.append(df) #add object rows to list
+        list_rows_var.append(rows) #add object rows to list
         
-        df_info = pd.DataFrame(var_info)
-                
-        val_info = []
-        #name_col = []
-        for j in range(0,3): #number of col in df_info
-            list_name_col = []
-            for k in range(0,df_info.count()[1]): #number of rows in df_info
-                l = []  
-                l.append(df_info.ix[k,j])
-                name_col = l*nb_region
-                list_name_col.extend(name_col)
-            val_info.append(list_name_col)
-        list_val_info.append(val_info)
-       
-    list_name_var = []
- 
-    for i in range(0,len(dict_rows_summary)):
-        name_var = []
-        val_info_tmp = list_val_info[i]
-        for k in range(0,len(val_info[0])):
-            test = val_info_tmp[0][k]+"_"+val_info_tmp[1][k]+"_"+val_info_tmp[2][k]
-            name_var.append(test)
-        list_name_var.append(name_var)
-        
-    ### end of name creation part for ncar temp predictions: might be changed for different input
-    
-    ### Now add info to create table
-    
-    #zonal_stat = "mean" #This is set earlier...
-    zonal_stat_col = ["region","sum","mean","count","max","min"] #should be set earlier from teh output or rows?
-    for i in range(0,len(dict_rows_summary)):
-        list_rows = dict_rows_summary.values()[i]
-        var_name = dict_rows_summary.keys()[i]
-        nb_columns = len(list_rows) # + 1
-        nb_rows = len(list_rows[0])
-        element_nb = zonal_stat_col.index(zonal_stat)  #find the position of zonal stat in hte list
-        #this is the column containing the mean for each entity (third column from postgis table)    
-        #table_test = pdb.runcall(create_summary_table,list_rows_tmin,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
-        table = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
-        dict_table[var_name] = table
-        #Now add id back...
-        nb_columns = 1 #this regturns only the first
-        element_nb = 0 #this is the column containing the region id set in the first part of the script
-        #table_test = pdb.runcall(create_summary_table,list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix)
-        id_reg = create_summary_table(list_rows,nb_rows,nb_columns,element_nb,out_dir,out_suffix,use_str=True)
-        id_reg = id_reg.ravel()
-        region_id = id_reg.tolist() #= region_id
-        #region_id = ["%s" % number for number in id_reg]
-        
-        #Now reshape to have a 48*16 rows and 4 columns... the last should be ID region
-        nb_columns = len(list_rows) # + 1
-        tt=table.ravel()
-        df_val = pd.DataFrame(tt,columns=["value"])
-        df_val["type"]= (list(region_type))* int(df_val.count()) #using the number of count in column value
-        df_val["Name"]= region_id*nb_columns #using the number of count in column value
-        df_val["valueType"] = list_name_var[i]
-        df_val.ix[1:10,] #print first 10 rows with columns name for quick check
-        #Write out results
-        df_val.to_csv("table_"+var_name+"_df_"+out_suffix+".csv",sep=",") #write out table        
+    ##Write out rows
+    fname = "list_rows_"+variable_name+"_"+out_suffix+".dat"
+    fname = os.path.join(out_dir,fname)
+    save_data(list_rows_var,fname)
+    ##Write out dataframe
+    fname = "list_df_"+variable_name+"_"+out_suffix+".dat"
+    fname = os.path.join(out_dir,fname)
+    save_data(list_df_var,fname)
+
+    df_var = pd.concat(list_df_var) #problem with the row indices
+    nb_rows = df_var['means'].count()
+    new_index = np.arange(0,nb_rows).tolist()  
+    df_var['ni'] = new_index #change the rows index
+    df_var = df_var.set_index('ni')
+    #df_var[df_var['means']> 200][['county','means']] #this is an example of subset of data.frame
+    #note that there is a problem with name county transformed to lower case
+    df_val = df_var[[region_name.lower(),zonal_stat,'var']] #select specific columns in a dataframe
+    df_val.columns = ["Name","value","valueType"] #rename columns 
+    df_val["type"] = [region_type]*nb_rows #create new column...
+    #variable_name = "temp" #set up at the beginning
+    df_val.to_csv("df_zonal_combined_"+variable_name+"_"+out_suffix+".csv")
+    df_val.ix[1:10,] #print first 10 rows with columns name for quick check
+    df_val["value"].describe() #summary values and range for checking output...
+
 
     return None
     
@@ -928,9 +747,5 @@ if __name__ == '__main__':
     main()
 
 # -*- coding: utf-8 -*-
-#
-#        df_var["decade"] = df_info["decade"]
-#        df_var["month"] = df_info["month"]
-#        df_var["var"] = df_info["var"]
 
 ################   END OF SCRIPT  ###############
